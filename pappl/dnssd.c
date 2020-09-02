@@ -26,6 +26,8 @@
 // Local globals...
 //
 
+static int		pappl_dns_sd_host_name_changes = 0;
+					// Number of host name changes/collisions
 static _pappl_dns_sd_t	pappl_dns_sd_master = NULL;
 					// DNS-SD master reference
 static pthread_mutex_t	pappl_dns_sd_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -50,6 +52,17 @@ static void		dns_sd_client_cb(AvahiClient *c, AvahiClientState state, void *data
 static void		dns_sd_printer_callback(AvahiEntryGroup *p, AvahiEntryGroupState state, pappl_printer_t *printer);
 static void		dns_sd_system_callback(AvahiEntryGroup *p, AvahiEntryGroupState state, pappl_system_t *system);
 #endif // HAVE_DNSSD
+
+
+//
+// '_papplDNSSDGetHostChanges()' - Get the number of host name changes/collisions so far.
+//
+
+int					// O - Number of host name changes/collisions
+_papplDNSSDGetHostChanges(void)
+{
+  return (pappl_dns_sd_host_name_changes);
+}
 
 
 //
@@ -320,6 +333,8 @@ _papplPrinterRegisterDNSSDNoLock(
   if (!printer->dns_sd_name)
     return (false);
 
+  papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG, "Registering DNS-SD name '%s' on '%s'", printer->dns_sd_name, printer->system->hostname);
+
   // Get attributes and values for the TXT record...
   color_supported           = ippFindAttribute(printer->driver_attrs, "color-supported", IPP_TAG_BOOLEAN);
   document_format_supported = ippFindAttribute(printer->driver_attrs, "document-format-supported", IPP_TAG_MIMETYPE);
@@ -396,7 +411,7 @@ _papplPrinterRegisterDNSSDNoLock(
       break;
   }
 
-  httpAssembleURIf(HTTP_URI_CODING_ALL, adminurl, sizeof(adminurl), "https", NULL, printer->system->hostname, printer->system->port, "%s/", printer->uriname);
+  httpAssembleURIf(HTTP_URI_CODING_ALL, adminurl, sizeof(adminurl), "http", NULL, printer->system->hostname, printer->system->port, "%s/", printer->uriname);
 
   if (printer->geo_location)
     dns_sd_geo_to_loc(printer->geo_location, printer->dns_sd_loc);
@@ -834,6 +849,8 @@ _papplSystemRegisterDNSSDNoLock(
   if (!system->dns_sd_name || !system->hostname || !system->uuid)
     return (false);
 
+  papplLog(system, PAPPL_LOGLEVEL_DEBUG, "Registering DNS-SD name '%s' on '%s'", system->dns_sd_name, system->hostname);
+
   if (system->geo_location)
     dns_sd_geo_to_loc(system->geo_location, system->dns_sd_loc);
 
@@ -1137,6 +1154,8 @@ dns_sd_client_cb(
       fputs("Avahi server crashed.\n", stderr);
     }
   }
+  else if (state == AVAHI_CLIENT_S_RUNNING)
+    pappl_dns_sd_host_name_changes ++;
 }
 
 

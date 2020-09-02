@@ -753,6 +753,8 @@ finish_job(pappl_job_t  *job)		// I - Job
   job->completed          = time(NULL);
   printer->processing_job = NULL;
 
+  _papplJobRemoveFile(job);
+
   pthread_rwlock_unlock(&job->rwlock);
 
   if (printer->is_stopped)
@@ -834,7 +836,7 @@ start_job(pappl_job_t *job)		// I - Job
   // Open the output device...
   while (!printer->device)
   {
-    printer->device = papplDeviceOpen(printer->device_uri, papplLogDevice, job->system);
+    printer->device = papplDeviceOpen(printer->device_uri, job->name, papplLogDevice, job->system);
 
     if (!printer->device)
     {

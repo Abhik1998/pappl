@@ -70,17 +70,75 @@ papplSystemAddListeners(
   else if (name && isdigit(*name & 255))
   {
     // Add IPv4 listener...
-    ret = add_listeners(system, name, system->port, AF_INET);
+    if (system->port)
+    {
+      ret = add_listeners(system, name, system->port, AF_INET);
+    }
+    else
+    {
+      int	port = 7999 + (getuid() % 1000);
+					// Current port
+
+      do
+      {
+        port ++;
+        ret = add_listeners(system, name, port, AF_INET);
+      }
+      while (!ret && port < 10000);
+
+      if (ret)
+        system->port = port;
+    }
   }
   else if (name && *name == '[')
   {
     // Add IPv6 listener...
-    ret = add_listeners(system, name, system->port, AF_INET6);
+    if (system->port)
+    {
+      ret = add_listeners(system, name, system->port, AF_INET6);
+    }
+    else
+    {
+      int	port = 7999 + (getuid() % 1000);
+					// Current port
+
+      do
+      {
+        port ++;
+        ret = add_listeners(system, name, port, AF_INET6);
+      }
+      while (!ret && port < 10000);
+
+      if (ret)
+        system->port = port;
+    }
   }
   else
   {
     // Add named listeners on both IPv4 and IPv6...
-    ret = add_listeners(system, name, system->port, AF_INET) || add_listeners(system, name, system->port, AF_INET6);
+    if (system->port)
+    {
+      ret = add_listeners(system, name, system->port, AF_INET) ||
+            add_listeners(system, name, system->port, AF_INET6);
+    }
+    else
+    {
+      int	port = 7999 + (getuid() % 1000);
+					// Current port
+
+      do
+      {
+        port ++;
+        ret = add_listeners(system, name, port, AF_INET);
+      }
+      while (!ret && port < 10000);
+
+      if (ret)
+      {
+        system->port = port;
+        add_listeners(system, name, port, AF_INET6);
+      }
+    }
   }
 
   return (ret);
@@ -742,6 +800,19 @@ papplSystemGetPassword(
 
 
 //
+// 'papplSystemGetPort()' - Get the port number for network connections to the
+//                          system.
+//
+
+int					// O - Port number
+papplSystemGetPort(
+    pappl_system_t *system)		// I - System
+{
+  return (system ? system->port : 0);
+}
+
+
+//
 // 'papplSystemGetServerHeader()' - Get the Server: header for HTTP responses.
 //
 
@@ -771,18 +842,23 @@ papplSystemGetSessionKey(
 
   if (system && buffer && bufsize > 0)
   {
-    pthread_rwlock_wrlock(&system->rwlock);
-
     if ((curtime - system->session_time) > 86400)
     {
-      // Update session key with random data...
+      // Lock for updating the session key with random data...
+      pthread_rwlock_wrlock(&system->session_rwlock);
+
       snprintf(system->session_key, sizeof(system->session_key), "%08x%08x%08x%08x%08x%08x%08x%08x", _papplGetRand(), _papplGetRand(), _papplGetRand(), _papplGetRand(), _papplGetRand(), _papplGetRand(), _papplGetRand(), _papplGetRand());
       system->session_time = curtime;
+    }
+    else
+    {
+      // Lock for reading...
+      pthread_rwlock_rdlock(&system->session_rwlock);
     }
 
     strlcpy(buffer, system->session_key, bufsize);
 
-    pthread_rwlock_unlock(&system->rwlock);
+    pthread_rwlock_unlock(&system->session_rwlock);
   }
   else if (buffer)
     *buffer = '\0';
@@ -1144,6 +1220,13 @@ papplSystemSetHostname(
       }
 #endif // !__APPLE__ && !_WIN32
 
+#ifdef HAVE_AVAHI
+      _pappl_dns_sd_t	master = _papplDNSSDInit(system);
+					  // DNS-SD master reference
+
+      avahi_client_set_host_name(master, value);
+#endif // HAVE_AVAHI
+
       sethostname(value, (int)strlen(value));
 
       system->hostname = strdup(value);
@@ -1180,10 +1263,8 @@ papplSystemSetHostname(
       system->hostname = strdup(temp);
     }
 
-    system->config_time = time(NULL);
-    system->config_changes ++;
-
-    _papplSystemRegisterDNSSDNoLock(system);
+    // Force an update of all DNS-SD registrations...
+    system->dns_sd_host_changes = -1;
 
     pthread_rwlock_unlock(&system->rwlock);
   }
@@ -1550,6 +1631,7 @@ add_listeners(
     int            port,		// I - Port number
     int            family)		// I - Address family
 {
+  bool			ret = false;	// Return value
   int			sock;		// Listener socket
   http_addrlist_t	*addrlist,	// Listen addresses
 			*addr;		// Current address
@@ -1563,35 +1645,41 @@ add_listeners(
       papplLog(system, PAPPL_LOGLEVEL_INFO, "Unable to lookup address(es) for '%s': %s", name, cupsLastErrorString());
     else
       papplLog(system, PAPPL_LOGLEVEL_INFO, "Unable to lookup address(es) for '%s:%d': %s", name ? name : "*", port, cupsLastErrorString());
-    return (false);
   }
-
-  if (name && *name == '/')
-    papplLog(system, PAPPL_LOGLEVEL_INFO, "Listening for connections on '%s'.", name);
   else
-    papplLog(system, PAPPL_LOGLEVEL_INFO, "Listening for connections on '%s:%d'.", name ? name : "*", system->port);
-
-  for (addr = addrlist; addr && system->num_listeners < _PAPPL_MAX_LISTENERS; addr = addr->next)
   {
-    if ((sock = httpAddrListen(&(addrlist->addr), port)) < 0)
+    for (addr = addrlist; addr && system->num_listeners < _PAPPL_MAX_LISTENERS; addr = addr->next)
     {
-      char	temp[256];		// String address
+      if ((sock = httpAddrListen(&(addrlist->addr), port)) < 0)
+      {
+	char	temp[256];		// String address
 
-      if (name && *name == '/')
-	papplLog(system, PAPPL_LOGLEVEL_ERROR, "Unable to create listener socket for '%s': %s", name, cupsLastErrorString());
+	if (system->port)
+	{
+	  if (name && *name == '/')
+	    papplLog(system, PAPPL_LOGLEVEL_ERROR, "Unable to create listener socket for '%s': %s", name, cupsLastErrorString());
+	  else
+	    papplLog(system, PAPPL_LOGLEVEL_ERROR, "Unable to create listener socket for '%s:%d': %s", httpAddrString(&addr->addr, temp, (int)sizeof(temp)), system->port, cupsLastErrorString());
+	}
+      }
       else
-	papplLog(system, PAPPL_LOGLEVEL_ERROR, "Unable to create listener socket for '%s:%d': %s", httpAddrString(&addr->addr, temp, (int)sizeof(temp)), system->port, cupsLastErrorString());
+      {
+        ret = true;
+
+	system->listeners[system->num_listeners].fd        = sock;
+	system->listeners[system->num_listeners ++].events = POLLIN;
+
+	if (name && *name == '/')
+	  papplLog(system, PAPPL_LOGLEVEL_INFO, "Listening for connections on '%s'.", name);
+	else
+	  papplLog(system, PAPPL_LOGLEVEL_INFO, "Listening for connections on '%s:%d'.", name ? name : "*", port);
+      }
     }
-    else
-    {
-      system->listeners[system->num_listeners].fd        = sock;
-      system->listeners[system->num_listeners ++].events = POLLIN;
-    }
+
+    httpAddrFreeList(addrlist);
   }
 
-  httpAddrFreeList(addrlist);
-
-  return (true);
+  return (ret);
 }
 
 

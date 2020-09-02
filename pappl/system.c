@@ -20,17 +20,16 @@
 // Local globals...
 //
 
-static bool		shutdown_system = false;
-static bool   restart_logging = false;
-					// Set to true on signal
+static bool	shutdown_system = false;// Shutdown system?
+static bool	restart_logging = false;// Restart logging?
 
 
 //
 // Local functions...
 //
 
-static void		sigterm_handler(int sig);
-static void   sighup_handler(int sig);
+static void	sigterm_handler(int sig);
+static void	sighup_handler(int sig);
 
 
 //
@@ -122,11 +121,12 @@ papplSystemCreate(
 
   // Initialize values...
   pthread_rwlock_init(&system->rwlock, NULL);
+  pthread_rwlock_init(&system->session_rwlock, NULL);
 
   system->options         = options;
   system->start_time      = time(NULL);
   system->name            = strdup(name);
-  system->port            = port ? port : 8000 + (getuid() % 1000);
+  system->port            = port;
   system->directory       = spooldir ? strdup(spooldir) : NULL;
   system->logfd           = -1;
   system->logfile         = logfile ? strdup(logfile) : NULL;
@@ -161,8 +161,7 @@ papplSystemCreate(
   {
     char	newspooldir[256];	// Spool directory
 
-    // TODO: May need a different default spool directory...
-    snprintf(newspooldir, sizeof(newspooldir), "%s/pappl%d.d", tmpdir, (int)getuid());
+    snprintf(newspooldir, sizeof(newspooldir), "%s/pappl%d.d", tmpdir, (int)getpid());
     system->directory = strdup(newspooldir);
   }
 
@@ -181,7 +180,7 @@ papplSystemCreate(
     // Default log file is $TMPDIR/papplUID.log...
     char newlogfile[256];		// Log filename
 
-    snprintf(newlogfile, sizeof(newlogfile), "%s/pappl%d.log", tmpdir, (int)getuid());
+    snprintf(newlogfile, sizeof(newlogfile), "%s/pappl%d.log", tmpdir, (int)getpid());
 
     system->logfile = strdup(newlogfile);
   }
@@ -256,6 +255,7 @@ papplSystemDelete(
   cupsArrayDelete(system->resources);
 
   pthread_rwlock_destroy(&system->rwlock);
+  pthread_rwlock_destroy(&system->session_rwlock);
 
   free(system);
 }
@@ -273,6 +273,8 @@ papplSystemRun(pappl_system_t *system)// I - System
   pappl_client_t	*client;	// New client
   char			header[HTTP_MAX_VALUE];
 					// Server: header value
+  int			dns_sd_host_changes;
+					// Current number of host name changes
 
 
   // Range check...
@@ -407,23 +409,32 @@ papplSystemRun(pappl_system_t *system)// I - System
       }
     }
 
-    if (system->dns_sd_any_collision)
+    dns_sd_host_changes = _papplDNSSDGetHostChanges();
+
+    if (system->dns_sd_any_collision || system->dns_sd_host_changes != dns_sd_host_changes)
     {
       // Handle name collisions...
       pappl_printer_t	*printer;	// Current printer
+      bool		force_dns_sd = system->dns_sd_host_changes != dns_sd_host_changes;
+					// Force re-registration?
+
+      if (force_dns_sd)
+        papplSystemSetHostname(system, NULL);
 
       pthread_rwlock_rdlock(&system->rwlock);
 
-      if (system->dns_sd_collision)
+      if (system->dns_sd_collision || force_dns_sd)
         _papplSystemRegisterDNSSDNoLock(system);
 
       for (printer = (pappl_printer_t *)cupsArrayFirst(system->printers); printer; printer = (pappl_printer_t *)cupsArrayNext(system->printers))
       {
-        if (printer->dns_sd_collision)
+        if (printer->dns_sd_collision || force_dns_sd)
           _papplPrinterRegisterDNSSDNoLock(printer);
       }
 
       system->dns_sd_any_collision = false;
+      system->dns_sd_host_changes  = dns_sd_host_changes;
+
       pthread_rwlock_unlock(&system->rwlock);
     }
 

@@ -89,6 +89,7 @@ struct _pappl_system_s			// System data
   gid_t			admin_gid;		// PAM administrative group ID
   char			*default_print_group;	// Default PAM printing group, if any
   char			session_key[65];	// Session key
+  pthread_rwlock_t	session_rwlock;		// Reader/writer lock for the session key
   time_t		session_time;		// Session key time
   int			num_listeners;		// Number of listener sockets
   struct pollfd		listeners[_PAPPL_MAX_LISTENERS];
@@ -120,6 +121,7 @@ struct _pappl_system_s			// System data
   bool			dns_sd_any_collision;	// Was there a name collision for any printer?
   bool			dns_sd_collision;	// Was there a name collision for this system?
   int			dns_sd_serial;		// DNS-SD serial number (for collisions)
+  int			dns_sd_host_changes;	// Last count of DNS-SD host name changes
 };
 
 
