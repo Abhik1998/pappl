@@ -12,7 +12,7 @@
 //
 
 #include "testpappl.h"
-#include <pappl/base-private.h>		// For strlcpy
+#include </home/abhik/pappl/pappl/base-private.h>		// For strlcpy
 #include <cups/dir.h>
 #include "label-png.h"
 

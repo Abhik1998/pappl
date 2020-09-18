@@ -124,9 +124,7 @@ enum pappl_label_mode_e			// IPP "label-mode-xxx" bit values
   PAPPL_LABEL_MODE_RFID = 0x0080,		// 'rfid'
   PAPPL_LABEL_MODE_TEAR_OFF = 0x0100		// 'tear-off'
 };
-typedef unsigned short pappl_label_mode_t;
-					// Bitfield for IPP "label-mode-xxx" values
-
+typedef unsigned short pappl_label_mode_t;					// Bitfield for IPP "label-mode-xxx" value
 enum pappl_media_tracking_e		// IPP "media-tracking" bit values
 {
   PAPPL_MEDIA_TRACKING_CONTINUOUS = 0x0001,	// 'continuous'
@@ -348,6 +346,69 @@ typedef struct pappl_psupply_s		// Supply data
   pappl_supply_type_t	type;			// Type
 } pappl_supply_t;
 
+enum pappl_scan_color_modes			// IPP "input-color-mode" bit values extended for
+{
+  PAPPL_SCAN_COLOR_MODE_AUTO = 0x01,			// 'auto': 
+  PAPPL_SCAN_COLOR_MODE_BILEVEL = 0x02,		// 'bi-level': 
+  PAPPL_SCAN_COLOR_MODE_COLOR = 0x04,			// 'color': 
+  PAPPL_SCAN_COLOR_MODE_MONO_4= 0x08,			// 'monochrome_4': 
+  PAPPL_SCAN_COLOR_MODE_MONO_8 = 0x10,		// 'monochrome_8': 
+  PAPPL_SCAN_COLOR_MODE_MONO_16 = 0x20,			// 'monochrome_16':
+  PAPPL_SCAN_COLOR_MODE_MONO = 0x40,		// 'monochrome':
+  PAPPL_SCAN_COLOR_MODE_COLOR_8 = 0x80,			// 'color_8': 
+  PAPPL_SCAN_COLOR_MODE_RGBA_8 = 0x100,			// 'rgba_8': 
+  PAPPL_SCAN_COLOR_MODE_RGB_16 = 0x200,			// 'rgb_16':
+  PAPPL_SCAN_COLOR_MODE_RGBA_16 = 0x400,			// 'rgba_16': 
+  PAPPL_SCAN_COLOR_MODE_CMYK_8 = 0x800,		// 'cmyk_8': 
+  PAPPL_SCAN_COLOR_MODE_CMYK_16 = 0x1000,			// 'cmyk_16': 
+};
+typedef unsigned pappl_scan_color_modes_t;
+enum pappl_scan_content_type			// IPP "input-content-type" bit values
+{
+  PAPPL_SCAN_CONTENT_TYPE_AUTO = 0x01,			// 'auto': automatically determine the type of document
+  PAPPL_SCAN_CONTENT_TYPE_HALFTONE = 0x02,		// 'halftone': automatically determine the type of document
+  PAPPL_SCAN_CONTENT_TYPE_LINEART = 0x04,			// 'line-art': the document contains line art
+  PAPPL_SCAN_CONTENT_TYPE_MAGAZINE= 0x08,			// 'magazine': the document is a magazine
+  PAPPL_SCAN_CONTENT_TYPE_PHOTO = 0x10,			// 'photo': the document is a photograph
+  PAPPL_SCAN_CONTENT_TYPE_TEXT = 0x20,			// 'text': the document only contains text
+  PAPPL_SCAN_CONTENT_TYPE_TEXT_PHOTO = 0x40,		// 'text-and-photo': the document contains a combination of text and photographs
+};
+typedef unsigned pappl_scan_content_type_t;	// Bitfield for IPP "input-content-type" values for scan
+
+enum pappl_scan_film			// IPP "input-film-scan-mode" bit values
+{
+  PAPPL_SCAN_FILM_BW_NEG = 0x01,			// 'black-and-white-negative-film': The film is black-and-white negatives
+  PAPPL_SCAN_FILM_COLOR_NEG = 0x02,		// 'color-negative-film': The film is color negatives
+  PAPPL_SCAN_FILM_COLOR_SLIDE = 0x04,			// 'color-slide-film': The film is color slides (positives)
+  PAPPL_SCAN_FILM_NA = 0x08,			// 'not-applicable': The type of film is not applicable to the usage
+};
+typedef unsigned pappl_scan_film_t;	// Bitfield for IPP "input-film-scan-mode" values for scan
+
+typedef struct pappl_scan_region_s		// "input-scan-regions" values
+{
+  int   x_origin;   // "x-origin" values in 1/2540th of an inch.
+  int   x_dim;   // "x-dim" values in 1/2540th of an inch.
+  int   y_origin;   // "y-origin" values in 1/2540th of an inch.
+  int   y_dim;   // "y-dim" values in 1/2540th of an inch.
+} pappl_scan_region_t;
+
+enum pappl_scan_input_source			// IPP "input-source" bit values
+{
+  PAPPL_SCAN_INPUT_SOURCE_ADF = 0x01,			// 'adf': scans documents from the auto-document feeder
+  PAPPL_SCAN_INPUT_SOURCE_FILM_READER = 0x02,		// 'film-reader': scans documents from a microfilm reader
+  PAPPL_SCAN_INPUT_SOURCE_PLATEN = 0x04,			// 'platen': scans a single page document from the scanner glass or platen
+};
+typedef unsigned pappl_scan_input_source_t;	// Bitfield for IPP "input-film-scan-mode" values for scan
+
+typedef struct pappl_scan_region_s		// "input-scan-regions" values
+{
+  int   x_origin;   // "x-origin" values in 1/2540th of an inch.
+  int   x_dim;   // "x-dim" values in 1/2540th of an inch.
+  int   y_origin;   // "y-origin" values in 1/2540th of an inch.
+  int   y_dim;   // "y-dim" values in 1/2540th of an inch.
+} pappl_scan_region_t;
+
+
 struct pappl_pdriver_data_s		// Print driver data
 {
   pappl_identfunc_t	identify;		// Identify-Printer function
@@ -465,6 +526,7 @@ extern int		papplPrinterGetNumberOfJobs(pappl_printer_t *printer) _PAPPL_PUBLIC;
 extern char		*papplPrinterGetOrganization(pappl_printer_t *printer, char *buffer, size_t bufsize) _PAPPL_PUBLIC;
 extern char		*papplPrinterGetOrganizationalUnit(pappl_printer_t *printer, char *buffer, size_t bufsize) _PAPPL_PUBLIC;
 extern pappl_pdriver_data_t *papplPrinterGetPrintDriverData(pappl_printer_t *printer, pappl_pdriver_data_t *data) _PAPPL_PUBLIC;
+//Add up support for the data structure pappl_pdriver_data_t
 extern char		*papplPrinterGetPrintGroup(pappl_printer_t *printer, char *buffer, size_t bufsize) _PAPPL_PUBLIC;
 extern pappl_preason_t	papplPrinterGetReasons(pappl_printer_t *printer) _PAPPL_PUBLIC;
 extern ipp_pstate_t	papplPrinterGetState(pappl_printer_t *printer) _PAPPL_PUBLIC;

@@ -86,6 +86,8 @@ typedef unsigned char pappl_dither_t[16][16];
                                         // 16x16 dither array
 typedef struct pappl_pdriver_data_s pappl_pdriver_data_t;
 					// Print driver data
+typedef struct pappl_pdriver_data_s pappl_sdriver_data_t;
+
 typedef struct _pappl_job_s pappl_job_t;// Job object
 typedef struct pappl_poptions_s pappl_poptions_t;
 					// Combined print job options

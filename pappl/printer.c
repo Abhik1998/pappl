@@ -112,11 +112,19 @@ papplPrinterCreate(
     IPP_OP_CANCEL_MY_JOBS,
     IPP_OP_CLOSE_JOB,
     IPP_OP_IDENTIFY_PRINTER
+    // IPP_OP_GET_NEXT_DOCUMENT_DATA
   };
   static const char * const charset[] =	// charset-supported values
   {
     "us-ascii",
     "utf-8"
+  };
+  static const char * const destination_uri_schemes[] =
+  {					// destination-uri-schemes-supported
+    "http",
+    "https",
+    "ftp",
+    "ftps"
   };
   static const char * const compression[] =
   {					// compression-supported values
@@ -192,14 +200,20 @@ papplPrinterCreate(
   // Prepare URI values for the printer attributes...
   if (system->options & PAPPL_SOPTIONS_MULTI_QUEUE)
   {
-    snprintf(resource, sizeof(resource), "/ipp/print/%s", printer_name);
+    if (type == PAPPL_SERVICE_TYPE_SCAN)
+      snprintf(resource, sizeof(resource), "/ipp/scan/%s", printer_name);
+    else
+      snprintf(resource, sizeof(resource), "/ipp/print/%s", printer_name);
     for (resptr = resource + 11; *resptr; resptr ++)
       if ((*resptr & 255) <= ' ' || *resptr == 0x7f)
 	*resptr = '_';
   }
-  else
-    strlcpy(resource, "/ipp/print", sizeof(resource));
-
+  else{
+    if (type == PAPPL_SERVICE_TYPE_SCAN)
+      strlcpy(resource, "/ipp/scan", sizeof(resource));
+    else
+      strlcpy(resource, "/ipp/print", sizeof(resource));
+  }
   papplLog(system, PAPPL_LOGLEVEL_INFO, "Printer '%s' at resource path '%s'.", printer_name, resource);
 
   _papplSystemMakeUUID(system, printer_name, 0, uuid, sizeof(uuid));
@@ -222,7 +236,10 @@ papplPrinterCreate(
   printer->name               = strdup(printer_name);
   printer->resource           = strdup(resource);
   printer->resourcelen        = strlen(resource);
-  printer->uriname            = printer->resource + 10; // Skip "/ipp/print" in resource
+  if (type == PAPPL_SERVICE_TYPE_SCAN)
+    printer->uriname          = printer->resource + 9; // Skip "/ipp/scan" in resource
+  else
+    printer->uriname          = printer->resource + 10; // Skip "/ipp/print" in resource
   printer->device_id          = device_id ? strdup(device_id) : NULL;
   printer->device_uri         = strdup(device_uri);
   printer->driver_name        = strdup(driver_name);
@@ -244,15 +261,20 @@ papplPrinterCreate(
 
   // Initialize driver...
   driver_attrs = NULL;
-  _papplPrinterInitPrintDriverData(&driver_data);
+  if (type == PAPPL_SERVICE_TYPE_SCAN)
+    _papplPrinterInitPrintDriverData(&driver_data);
+  else
+    _papplPrinterInitPrintDriverData(&driver_data);
 
   if (!(system->pdriver_cb)(system, driver_name, device_uri, &driver_data, &driver_attrs, system->pdriver_cbdata))
   {
     free_printer(printer);
     return (NULL);
   }
-
-  papplPrinterSetPrintDriverData(printer, &driver_data, driver_attrs);
+  if (type == PAPPL_SERVICE_TYPE_SCAN)
+    papplPrinterSetPrintDriverData(printer, &driver_data, driver_attrs);
+  else
+    papplPrinterSetPrintDriverData(printer, &driver_data, driver_attrs);
   ippDelete(driver_attrs);
 
   // Generate printer-device-id value as needed...
@@ -330,6 +352,46 @@ papplPrinterCreate(
 
   // copies-supported
   // TODO: filter based on document format
+  if (type == PAPPL_SERVICE_TYPE_SCAN)
+  {
+    // copies-supported
+    ippAddRange(printer->attrs, IPP_TAG_PRINTER, "copies-supported", 1, 1);   //Value must be 1 for SCAN
+
+
+  // document-format-default	    // document-format-default
+  ippAddString(printer->attrs, IPP_TAG_PRINTER, IPP_CONST_TAG(IPP_TAG_MIMETYPE), "document-format-default", NULL, "application/octet-stream");	    ippAddString(printer->attrs, IPP_TAG_PRINTER, IPP_CONST_TAG(IPP_TAG_MIMETYPE), "document-format-default", NULL, "application/pdf");
+
+
+  // generated-natural-language-supported	    // input-orientation-requested-supported
+  ippAddString(printer->attrs, IPP_TAG_PRINTER, IPP_CONST_TAG(IPP_TAG_LANGUAGE), "generated-natural-language-supported", NULL, "en");	    ippAddIntegers(printer->attrs, IPP_TAG_PRINTER, IPP_TAG_ENUM, "input-orientation-requested-supported", (int)(sizeof(orientation_requested) / sizeof(orientation_requested[0])), orientation_requested);
+
+
+  // ipp-versions-supported	    // destination-uri-schemes-supported
+  ippAddStrings(printer->attrs, IPP_TAG_PRINTER, IPP_CONST_TAG(IPP_TAG_KEYWORD), "ipp-versions-supported", (int)(sizeof(ipp_versions) / sizeof(ipp_versions[0])), NULL, ipp_versions);	    ippAddStrings(printer->attrs, IPP_TAG_PRINTER, IPP_CONST_TAG(IPP_TAG_KEYWORD), "destination-uri-schemes-supported", (int)(sizeof(destination_uri_schemes) / sizeof(destination_uri_schemes[0])), NULL, destination_uri_schemes);
+
+
+  // job-ids-supported	    // multiple-destination-uris-supported
+  ippAddBoolean(printer->attrs, IPP_TAG_PRINTER, "job-ids-supported", 1);	    ippAddBoolean(printer->attrs, IPP_TAG_PRINTER, "multiple-destination-uris-supported", 0);
+
+
+  // job-k-octets-supported	    // number-of-retries-supported
+  ippAddRange(printer->attrs, IPP_TAG_PRINTER, "job-k-octets-supported", 0, k_supported);	    ippAddRange(printer->attrs, IPP_TAG_PRINTER, "number-of-retries-supported", 0,10);
+
+
+  // job-priority-default	    // retry-interval-supported
+  ippAddInteger(printer->attrs, IPP_TAG_PRINTER, IPP_TAG_INTEGER, "job-priority-default", 50);	    ippAddRange(printer->attrs, IPP_TAG_PRINTER, "retry-interval-supported", 0,5);
+
+
+  // job-priority-supported	    // retry-time-out-supported
+  ippAddInteger(printer->attrs, IPP_TAG_PRINTER, IPP_TAG_INTEGER, "job-priority-supported", 1);	    ippAddRange(printer->attrs, IPP_TAG_PRINTER, "retry-time-out-supported", 0,5);
+
+
+  // job-sheets-default	    // input-quality-supported
+  ippAddString(printer->attrs, IPP_TAG_PRINTER, IPP_CONST_TAG(IPP_TAG_NAME), "job-sheets-default", NULL, "none");	    ippAddIntegers(printer->attrs, IPP_TAG_PRINTER, IPP_TAG_ENUM, "input-quality-supported", (int)(sizeof(print_quality) / sizeof(print_quality[0])), print_quality);
+  }
+  else
+  {
+    /* code */  
   ippAddRange(printer->attrs, IPP_TAG_PRINTER, "copies-supported", 1, 999);
 
   // document-format-default
@@ -440,6 +502,15 @@ papplPrinterCreate(
 
   // print-scaling-supported
   ippAddStrings(printer->attrs, IPP_TAG_PRINTER, IPP_CONST_TAG(IPP_TAG_KEYWORD), "print-scaling-supported", (int)(sizeof(print_scaling) / sizeof(print_scaling[0])), NULL, print_scaling);
+  }
+  // generated-natural-language-supported
+  ippAddString(printer->attrs, IPP_TAG_PRINTER, IPP_CONST_TAG(IPP_TAG_LANGUAGE), "generated-natural-language-supported", NULL, "en");
+
+  // ipp-versions-supported
+  ippAddStrings(printer->attrs, IPP_TAG_PRINTER, IPP_CONST_TAG(IPP_TAG_KEYWORD), "ipp-versions-supported", (int)(sizeof(ipp_versions) / sizeof(ipp_versions[0])), NULL, ipp_versions);
+
+  // job-ids-supported
+  ippAddBoolean(printer->attrs, IPP_TAG_PRINTER, "job-ids-supported", 1);
 
   // printer-device-id
   if (printer->device_id)
