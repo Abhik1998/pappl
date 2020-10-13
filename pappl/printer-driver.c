@@ -39,11 +39,27 @@ papplPrinterGetPrintDriverData(
     return (NULL);
   }
 
-  memcpy(data, &printer->driver_data, sizeof(pappl_pdriver_data_t));
+  memcpy(data, &printer->psdriver.driver_data, sizeof(pappl_pdriver_data_t));
 
   return (data);
 }
+pappl_sdriver_data_t *
+papplPrinterGetScanDriverData(
+    pappl_printer_t      *printer,	// I - Printer
+    pappl_sdriver_data_t *data)		// I - Pointer to driver data structure to fill
+{
+  if (!printer || !printer->driver_name || !data)
+  {
+    if (data)
+      _papplPrinterInitScanDriverData(data);
 
+    return (NULL);
+  }
+
+  memcpy(data, &printer->psdriver.driver_data, sizeof(pappl_sdriver_data_t));
+
+  return (data);
+}
 
 //
 // 'papplPrinterGetDriverName()' - Get the current driver name.
@@ -146,14 +162,37 @@ papplPrinterSetPrintDriverData(
   pthread_rwlock_wrlock(&printer->rwlock);
 
   // Copy driver data to printer
-  memcpy(&printer->driver_data, data, sizeof(printer->driver_data));
+  memcpy(&printer->psdriver.driver_data, data, sizeof(printer->psdriver.driver_data));
 
   // Create printer (capability) attributes based on driver data...
   ippDelete(printer->driver_attrs);
   if (printer->type == PAPPL_SERVICE_TYPE_SCAN)
-    printer->driver_attrs = make_attrs_scan(printer->system, &printer->driver_data);
+    printer->driver_attrs = make_attrs_scan(printer->system, &printer->psdriver.driver_data);
   else
-    printer->driver_attrs = make_attrs(printer->system, &printer->driver_data);
+    printer->driver_attrs = make_attrs(printer->system, &printer->psdriver.driver_data);
+
+  if (attrs)
+    ippCopyAttributes(printer->driver_attrs, attrs, 0, NULL, NULL);
+
+  pthread_rwlock_unlock(&printer->rwlock);
+}
+void
+papplPrinterSetScanDriverData(
+    pappl_printer_t      *printer,	// I - Printer
+    pappl_sdriver_data_t *data,		// I - Driver data
+    ipp_t                *attrs)	// I - Additional capability attributes or `NULL` for none
+{
+  if (!printer || !data)
+    return;
+
+  pthread_rwlock_wrlock(&printer->rwlock);
+
+  // Copy driver data to scanner
+  memcpy(&printer->psdriver.driver_data, data, sizeof(printer->psdriver.driver_data));
+
+  // Create scanner (capability) attributes based on driver data...
+  ippDelete(printer->driver_attrs);
+  printer->driver_attrs = make_attrs_scan(printer->system, &printer->psdriver.driver_data);
 
   if (attrs)
     ippCopyAttributes(printer->driver_attrs, attrs, 0, NULL, NULL);

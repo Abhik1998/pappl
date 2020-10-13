@@ -557,7 +557,7 @@ copy_printer_attributes(
   unsigned	bit;			// Current bit value
   const char	*svalues[100];		// String values
   int		ivalues[100];		// Integer values
-  pappl_pdriver_data_t	*data = &printer->driver_data;
+  pappl_pdriver_data_t	*data = &printer->psdriver.driver_data;
 					// Driver data
 
 
@@ -641,7 +641,7 @@ copy_printer_attributes(
 
   if ((!ra || cupsArrayFind(ra, "media-col-default")) && data->media_default.size_name[0])
   {
-    ipp_t *col = _papplMediaColExport(&printer->driver_data, &data->media_default, 0);
+    ipp_t *col = _papplMediaColExport(&printer->psdriver.driver_data, &data->media_default, 0);
 					// Collection value
 
     ippAddCollection(client->response, IPP_TAG_PRINTER, "media-col-default", col);
@@ -680,20 +680,20 @@ copy_printer_attributes(
 
 	    media.bottom_margin = media.top_margin   = data->bottom_top;
 	    media.left_margin   = media.right_margin = data->left_right;
-	    col = _papplMediaColExport(&printer->driver_data, &media, 0);
+	    col = _papplMediaColExport(&printer->psdriver.driver_data, &media, 0);
 	    ippSetCollection(client->response, &attr, j ++, col);
 	    ippDelete(col);
 
 	    media.bottom_margin = media.top_margin   = 0;
 	    media.left_margin   = media.right_margin = 0;
-	    col = _papplMediaColExport(&printer->driver_data, &media, 0);
+	    col = _papplMediaColExport(&printer->psdriver.driver_data, &media, 0);
 	    ippSetCollection(client->response, &attr, j ++, col);
 	    ippDelete(col);
 	  }
 	  else
 	  {
 	    // Just report the single media-col value...
-	    col = _papplMediaColExport(&printer->driver_data, data->media_ready + i, 0);
+	    col = _papplMediaColExport(&printer->psdriver.driver_data, data->media_ready + i, 0);
 	    ippSetCollection(client->response, &attr, j ++, col);
 	    ippDelete(col);
 	  }
@@ -1784,10 +1784,10 @@ ipp_get_printer_attributes(
 					// Printer
 
 
-  if (!printer->device_in_use && !printer->processing_job && (time(NULL) - printer->status_time) > 1 && printer->driver_data.status)
+  if (!printer->device_in_use && !printer->processing_job && (time(NULL) - printer->status_time) > 1 && printer->psdriver.driver_data.status)
   {
     // Update printer status...
-    (printer->driver_data.status)(printer);
+    (printer->psdriver.driver_data.status)(printer);
     printer->status_time = time(NULL);
   }
 
@@ -2103,7 +2103,7 @@ ipp_identify_printer(
   const char		*message;	// "message" value
 
 
-  if (client->printer->driver_data.identify)
+  if (client->printer->psdriver.driver_data.identify)
   {
     if ((attr = ippFindAttribute(client->request, "identify-actions", IPP_TAG_KEYWORD)) != NULL)
     {
@@ -2113,14 +2113,14 @@ ipp_identify_printer(
 	actions |= _papplIdentifyActionsValue(ippGetString(attr, i, NULL));
     }
     else
-      actions = client->printer->driver_data.identify_default;
+      actions = client->printer->psdriver.driver_data.identify_default;
 
     if ((attr = ippFindAttribute(client->request, "message", IPP_TAG_TEXT)) != NULL)
       message = ippGetString(attr, 0, NULL);
     else
       message = NULL;
 
-    (client->printer->driver_data.identify)(client->printer, actions, message);
+    (client->printer->psdriver.driver_data.identify)(client->printer, actions, message);
   }
 
   papplClientRespondIPP(client, IPP_STATUS_OK, NULL);
@@ -2291,7 +2291,7 @@ ipp_send_document(
   else if ((attr = ippFindAttribute(job->attrs, "document-format-supplied", IPP_TAG_MIMETYPE)) != NULL)
     job->format = ippGetString(attr, 0, NULL);
   else
-    job->format = client->printer->driver_data.format;
+    job->format = client->printer->psdriver.driver_data.format;
 
   pthread_rwlock_unlock(&(client->printer->rwlock));
 
@@ -2592,40 +2592,40 @@ set_printer_attributes(
 
     if (!strcmp(name, "identify-actions-default"))
     {
-      printer->driver_data.identify_default = PAPPL_IDENTIFY_ACTIONS_NONE;
+      printer->psdriver.driver_data.identify_default = PAPPL_IDENTIFY_ACTIONS_NONE;
 
       for (i = 0, count = ippGetCount(rattr); i < count; i ++)
-        printer->driver_data.identify_default |= _papplIdentifyActionsValue(ippGetString(rattr, i, NULL));
+        printer->psdriver.driver_data.identify_default |= _papplIdentifyActionsValue(ippGetString(rattr, i, NULL));
     }
     else if (!strcmp(name, "label-mode-configured"))
     {
-      printer->driver_data.mode_configured = _papplLabelModeValue(ippGetString(rattr, 0, NULL));
+      printer->psdriver.driver_data.mode_configured = _papplLabelModeValue(ippGetString(rattr, 0, NULL));
     }
     else if (!strcmp(name, "label-tear-offset-configured"))
     {
-      printer->driver_data.tear_offset_configured = ippGetInteger(rattr, 0);
+      printer->psdriver.driver_data.tear_offset_configured = ippGetInteger(rattr, 0);
     }
     else if (!strcmp(name, "media-col-default"))
     {
-      _papplMediaColImport(ippGetCollection(rattr, 0), &printer->driver_data.media_default);
+      _papplMediaColImport(ippGetCollection(rattr, 0), &printer->psdriver.driver_data.media_default);
     }
     else if (!strcmp(name, "media-col-ready"))
     {
       count = ippGetCount(rattr);
 
       for (i = 0; i < count; i ++)
-        _papplMediaColImport(ippGetCollection(rattr, i), printer->driver_data.media_ready + i);
+        _papplMediaColImport(ippGetCollection(rattr, i), printer->psdriver.driver_data.media_ready + i);
 
       for (; i < PAPPL_MAX_SOURCE; i ++)
-        memset(printer->driver_data.media_ready + i, 0, sizeof(pappl_media_col_t));
+        memset(printer->psdriver.driver_data.media_ready + i, 0, sizeof(pappl_media_col_t));
     }
     else if (!strcmp(name, "media-default"))
     {
       if ((pwg = pwgMediaForPWG(ippGetString(rattr, 0, NULL))) != NULL)
       {
         strlcpy(printer->driver_data.media_default.size_name, pwg->pwg, sizeof(printer->driver_data.media_default.size_name));
-        printer->driver_data.media_default.size_width  = pwg->width;
-        printer->driver_data.media_default.size_length = pwg->length;
+        printer->psdriver.driver_data.media_default.size_width  = pwg->width;
+        printer->psdriver.driver_data.media_default.size_length = pwg->length;
       }
     }
     else if (!strcmp(name, "media-ready"))
@@ -2637,45 +2637,45 @@ set_printer_attributes(
         if ((pwg = pwgMediaForPWG(ippGetString(rattr, i, NULL))) != NULL)
         {
           strlcpy(printer->driver_data.media_ready[i].size_name, pwg->pwg, sizeof(printer->driver_data.media_ready[i].size_name));
-	  printer->driver_data.media_ready[i].size_width  = pwg->width;
-	  printer->driver_data.media_ready[i].size_length = pwg->length;
+	  printer->psdriver.driver_data.media_ready[i].size_width  = pwg->width;
+	  printer->psdriver.driver_data.media_ready[i].size_length = pwg->length;
 	}
       }
 
       for (; i < PAPPL_MAX_SOURCE; i ++)
       {
-        printer->driver_data.media_ready[i].size_name[0] = '\0';
-        printer->driver_data.media_ready[i].size_width   = 0;
-        printer->driver_data.media_ready[i].size_length  = 0;
+        printer->psdriver.driver_data.media_ready[i].size_name[0] = '\0';
+        printer->psdriver.driver_data.media_ready[i].size_width   = 0;
+        printer->psdriver.driver_data.media_ready[i].size_length  = 0;
       }
     }
     else if (!strcmp(name, "orientation-requested-default"))
     {
-      printer->driver_data.orient_default = (ipp_orient_t)ippGetInteger(rattr, 0);
+      printer->psdriver.driver_data.orient_default = (ipp_orient_t)ippGetInteger(rattr, 0);
     }
     else if (!strcmp(name, "print-color-mode-default"))
     {
-      printer->driver_data.color_default = _papplColorModeValue(ippGetString(rattr, 0, NULL));
+      printer->psdriver.driver_data.color_default = _papplColorModeValue(ippGetString(rattr, 0, NULL));
     }
     else if (!strcmp(name, "print-content-optimize-default"))
     {
-      printer->driver_data.content_default = _papplContentValue(ippGetString(rattr, 0, NULL));
+      printer->psdriver.driver_data.content_default = _papplContentValue(ippGetString(rattr, 0, NULL));
     }
     else if (!strcmp(name, "print-darkness-default"))
     {
-      printer->driver_data.darkness_default = ippGetInteger(rattr, 0);
+      printer->psdriver.driver_data.darkness_default = ippGetInteger(rattr, 0);
     }
     else if (!strcmp(name, "print-quality-default"))
     {
-      printer->driver_data.quality_default = (ipp_quality_t)ippGetInteger(rattr, 0);
+      printer->psdriver.driver_data.quality_default = (ipp_quality_t)ippGetInteger(rattr, 0);
     }
     else if (!strcmp(name, "print-scaling-default"))
     {
-      printer->driver_data.scaling_default = _papplScalingValue(ippGetString(rattr, 0, NULL));
+      printer->psdriver.driver_data.scaling_default = _papplScalingValue(ippGetString(rattr, 0, NULL));
     }
     else if (!strcmp(name, "print-speed-default"))
     {
-      printer->driver_data.speed_default = ippGetInteger(rattr, 0);
+      printer->psdriver.driver_data.speed_default = ippGetInteger(rattr, 0);
     }
     else if (!strcmp(name, "printer-contact-col"))
     {
@@ -2683,7 +2683,7 @@ set_printer_attributes(
     }
     else if (!strcmp(name, "printer-darkness-configured"))
     {
-      printer->driver_data.darkness_configured = ippGetInteger(rattr, 0);
+      printer->psdriver.driver_data.darkness_configured = ippGetInteger(rattr, 0);
     }
     else if (!strcmp(name, "printer-geo-location"))
     {
@@ -2709,7 +2709,7 @@ set_printer_attributes(
     {
       ipp_res_t units;			// Resolution units
 
-      printer->driver_data.x_default = ippGetResolution(rattr, 0, &printer->driver_data.y_default, &units);
+      printer->psdriver.driver_data.x_default = ippGetResolution(rattr, 0, &printer->psdriver.driver_data.y_default, &units);
     }
   }
 
@@ -3082,7 +3082,7 @@ valid_job_attributes(
     pappl_color_mode_t value = _papplColorModeValue(ippGetString(attr, 0, NULL));
 					// "print-color-mode" value
 
-    if (ippGetCount(attr) != 1 || ippGetValueTag(attr) != IPP_TAG_KEYWORD || !(value & client->printer->driver_data.color_supported))
+    if (ippGetCount(attr) != 1 || ippGetValueTag(attr) != IPP_TAG_KEYWORD || !(value & client->printer->psdriver.driver_data.color_supported))
     {
       respond_unsupported(client, attr);
       valid = 0;
@@ -3102,7 +3102,7 @@ valid_job_attributes(
   {
     int value = ippGetInteger(attr, 0);	// "print-darkness" value
 
-    if (ippGetCount(attr) != 1 || ippGetValueTag(attr) != IPP_TAG_INTEGER || value < -100 || value > 100 || client->printer->driver_data.darkness_supported == 0)
+    if (ippGetCount(attr) != 1 || ippGetValueTag(attr) != IPP_TAG_INTEGER || value < -100 || value > 100 || client->printer->psdriver.driver_data.darkness_supported == 0)
     {
       respond_unsupported(client, attr);
       valid = 0;
@@ -3131,7 +3131,7 @@ valid_job_attributes(
   {
     int value = ippGetInteger(attr, 0);	// "print-speed" value
 
-    if (ippGetCount(attr) != 1 || ippGetValueTag(attr) != IPP_TAG_INTEGER || value < client->printer->driver_data.speed_supported[0] || value > client->printer->driver_data.speed_supported[1] || client->printer->driver_data.speed_supported[1] == 0)
+    if (ippGetCount(attr) != 1 || ippGetValueTag(attr) != IPP_TAG_INTEGER || value < client->printer->psdriver.driver_data.speed_supported[0] || value > client->printer->psdriver.driver_data.speed_supported[1] || client->printer->psdriver.driver_data.speed_supported[1] == 0)
     {
       respond_unsupported(client, attr);
       valid = 0;
@@ -3155,13 +3155,13 @@ valid_job_attributes(
     {
       int	i;			// Looping var
 
-      for (i = 0; i < client->printer->driver_data.num_resolution; i ++)
+      for (i = 0; i < client->printer->psdriver.driver_data.num_resolution; i ++)
       {
-        if (xdpi == client->printer->driver_data.x_resolution[i] && ydpi == client->printer->driver_data.y_resolution[i])
+        if (xdpi == client->printer->psdriver.driver_data.x_resolution[i] && ydpi == client->printer->psdriver.driver_data.y_resolution[i])
           break;
       }
 
-      if (i >= client->printer->driver_data.num_resolution)
+      if (i >= client->printer->psdriver.driver_data.num_resolution)
       {
 	respond_unsupported(client, attr);
 	valid = 0;
@@ -3174,7 +3174,7 @@ valid_job_attributes(
     pappl_sides_t value = _papplSidesValue(ippGetString(attr, 0, NULL));
 					// "sides" value
 
-    if (ippGetCount(attr) != 1 || ippGetValueTag(attr) != IPP_TAG_KEYWORD || !(value & client->printer->driver_data.sides_supported))
+    if (ippGetCount(attr) != 1 || ippGetValueTag(attr) != IPP_TAG_KEYWORD || !(value & client->printer->psdriver.driver_data.sides_supported))
     {
       respond_unsupported(client, attr);
       valid = 0;
