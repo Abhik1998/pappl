@@ -85,6 +85,7 @@ _papplClientProcessIPP(
   ipp_op_t		op;		// Operation code
   const char		*name;		// Name of attribute
   bool			printer_op = true;
+  bool scanner = false;
 					// Printer operation?
 
 
@@ -204,6 +205,8 @@ _papplClientProcessIPP(
 	  }
 	  else if ((client->printer = papplSystemFindPrinter(client->system, resource, 0, NULL)) != NULL)
 	  {
+      if(strstr(resource, "/ipp/scan"))
+        scanner=true;
 	    if (!strcmp(name, "job-uri") && (resptr = strrchr(resource, '/')) != NULL)
 	      job_id = atoi(resptr + 1);
 	    else
@@ -236,6 +239,8 @@ _papplClientProcessIPP(
 		  break;
 
 	      case IPP_OP_CREATE_JOB :
+        if(scanner)
+        ipp_scan_create_job(client);
 		  ipp_create_job(client);
 		  break;
 
