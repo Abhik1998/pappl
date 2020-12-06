@@ -71,9 +71,9 @@ struct _pappl_printer_s			// Printer data
   pappl_device_t	*device;		// Current connection to device (if any)
   bool			device_in_use;		// Is the device in use?
   char			*driver_name;		// Driver name
-  union pappl_job_data{
-  pappl_pdriver_data_t driver_data;
-  pappl_sdriver_data_t scan_driver_data;
+  union pappl_job_data{      // union defined for driver data
+    pappl_pdriver_data_t driver_data;
+    pappl_sdriver_data_t scan_driver_data;
 } psdriver;
   
   ipp_t			*driver_attrs;		// Driver attributes

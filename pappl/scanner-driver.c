@@ -26,7 +26,7 @@ papplPrinterGetScanDriverData(
     return (NULL);
   }
 
-  memcpy(data, &printer->driver_data, sizeof(pappl_sdriver_data_t));
+  memcpy(data, &printer->psdriver.scan_driver_data, sizeof(pappl_sdriver_data_t));
 
   return (data);
 }
@@ -94,11 +94,11 @@ papplPrinterSetScanDriverData(
   pthread_rwlock_wrlock(&printer->rwlock);
 
   // Copy driver data to scanner
-  memcpy(&printer->driver_data, data, sizeof(printer->driver_data));
+  memcpy(&printer->psdriver.scan_driver_data, data, sizeof(printer->psdriver.scan_driver_data));
 
   // Create scanner (capability) attributes based on driver data...
   ippDelete(printer->driver_attrs);
-  printer->driver_attrs = make_attrs_scan(printer->system, &printer->driver_data);
+  printer->driver_attrs = make_attrs_scan(printer->system, &printer->psdriver.scan_driver_data);
 
   if (attrs)
     ippCopyAttributes(printer->driver_attrs, attrs, 0, NULL, NULL);
