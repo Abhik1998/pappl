@@ -14,6 +14,7 @@
 
 #include "pappl-private.h"
 #include "resource-private.h"
+#include "device-private.h"
 
 
 //
@@ -28,8 +29,9 @@ static bool	restart_logging = false;// Restart logging?
 // Local functions...
 //
 
-static void	sigterm_handler(int sig);
+static void	make_attributes(pappl_system_t *system);
 static void	sighup_handler(int sig);
+static void	sigterm_handler(int sig);
 
 
 //
@@ -95,6 +97,52 @@ _papplSystemConfigChanged(
 //
 // 'papplSystemCreate()' - Create a system object.
 //
+// This function creates a new system object, which is responsible for managing
+// all the printers, jobs, and resources used by the printer application.
+//
+// The "options" argument specifies which options are enabled for the server:
+//
+// - `PAPPL_SOPTIONS_NONE`: No options.
+// - `PAPPL_SOPTIONS_DNSSD_HOST`: When resolving DNS-SD service name collisions,
+//   use the DNS-SD hostname instead of a serial number or UUID.
+// - `PAPPL_SOPTIONS_WEB_LOG`: Include the log file web page.
+// - `PAPPL_SOPTIONS_MULTI_QUEUE`: Support multiple printers.
+// - `PAPPL_SOPTIONS_WEB_NETWORK`: Include the network settings web page.
+// - `PAPPL_SOPTIONS_RAW_SOCKET`: Accept jobs via raw sockets starting on port
+//   9100.
+// - `PAPPL_SOPTIONS_WEB_REMOTE`: Allow remote queue management.
+// - `PAPPL_SOPTIONS_WEB_SECURITY`: Include the security settings web page.
+// - `PAPPL_SOPTIONS_WEB_INTERFACE`: Include the standard printer and job monitoring
+//   web pages.
+// - `PAPPL_SOPTIONS_WEB_TLS`: Include the TLS settings page.
+// - `PAPPL_SOPTIONS_USB_PRINTER`: Accept jobs via USB for the default printer
+//   (embedded Linux only).
+//
+// The "name" argument specifies a human-readable name for the system.
+//
+// The "port" argument specifies the port number to bind to.  A value of `0`
+// will cause an available port number to be assigned when the first listener
+// is added with the @link papplSystemAddListeners@ function.
+//
+// The "subtypes" argument specifies one or more comma-delimited DNS-SD service
+// sub-types such as "_print" and "_universal".
+//
+// The "spooldir" argument specifies the location of job files.  If `NULL`, a
+// temporary directory is created.
+//
+// The "logfile" argument specifies where to send log messages.  If `NULL`, the
+// log messages are written to a temporary file.
+//
+// The "loglevel" argument specifies the initial logging level.
+//
+// The "auth_service" argument specifies a PAM authentication service name.  If
+// `NULL`, no user authentication will be provided.
+//
+// The "tls_only" argument controls whether the printer application will accept
+// unencrypted connections.  In general, this argument should always be `false`
+// (allow unencrypted connections) since not all clients support encrypted
+// printing.
+//
 
 pappl_system_t *			// O - System object
 papplSystemCreate(
@@ -126,6 +174,7 @@ papplSystemCreate(
   system->options         = options;
   system->start_time      = time(NULL);
   system->name            = strdup(name);
+  system->dns_sd_name     = strdup(name);
   system->port            = port;
   system->directory       = spooldir ? strdup(spooldir) : NULL;
   system->logfd           = -1;
@@ -134,13 +183,10 @@ papplSystemCreate(
   system->logmaxsize      = 1024 * 1024;
   system->next_client     = 1;
   system->next_printer_id = 1;
+  system->subtypes        = subtypes ? strdup(subtypes) : NULL;
   system->tls_only        = tls_only;
   system->admin_gid       = (gid_t)-1;
-
-  if (subtypes)
-    system->subtypes = strdup(subtypes);
-  if (auth_service)
-    system->auth_service = strdup(auth_service);
+  system->auth_service    = auth_service ? strdup(auth_service) : NULL;
 
   // Make sure the system name and UUID are initialized...
   papplSystemSetHostname(system, NULL);
@@ -216,7 +262,7 @@ papplSystemCreate(
 //
 // 'papplSystemDelete()' - Delete a system object.
 //
-// Note: A system object cannot be deleted while the system is running.
+// > Note: A system object cannot be deleted while the system is running.
 //
 
 void
@@ -262,235 +308,6 @@ papplSystemDelete(
 
 
 //
-// 'papplSystemRun()' - Run the printer service.
-//
-
-void
-papplSystemRun(pappl_system_t *system)// I - System
-{
-  int			i,		// Looping var
-			count;		// Number of listeners that fired
-  pappl_client_t	*client;	// New client
-  char			header[HTTP_MAX_VALUE];
-					// Server: header value
-  int			dns_sd_host_changes;
-					// Current number of host name changes
-
-
-  // Range check...
-  if (!system)
-    return;
-
-  if (system->is_running)
-  {
-    papplLog(system, PAPPL_LOGLEVEL_FATAL, "Tried to run system when already running.");
-    return;
-  }
-
-  if (system->num_listeners == 0)
-  {
-    papplLog(system, PAPPL_LOGLEVEL_FATAL, "Tried to run system without listeners.");
-    return;
-  }
-
-  system->is_running = true;
-
-  // Add fallback resources...
-  papplSystemAddResourceData(system, "/favicon.png", "image/png", icon_md_png, sizeof(icon_md_png));
-  papplSystemAddResourceData(system, "/navicon.png", "image/png", icon_sm_png, sizeof(icon_sm_png));
-  papplSystemAddResourceString(system, "/style.css", "text/css", style_css);
-
-  if ((system->options & PAPPL_SOPTIONS_LOG) && system->logfile && strcmp(system->logfile, "-") && strcmp(system->logfile, "syslog"))
-  {
-    papplSystemAddResourceCallback(system, "/logfile.txt", "text/plain", (pappl_resource_cb_t)_papplSystemWebLogFile, system);
-    papplSystemAddResourceCallback(system, "/logs", "text/html", (pappl_resource_cb_t)_papplSystemWebLogs, system);
-  }
-
-  if (system->options & PAPPL_SOPTIONS_STANDARD)
-  {
-    if (system->options & PAPPL_SOPTIONS_MULTI_QUEUE)
-    {
-      papplSystemAddResourceCallback(system, "/", "text/html", (pappl_resource_cb_t)_papplSystemWebHome, system);
-      papplSystemAddResourceCallback(system, "/addprinter", "text/html", (pappl_resource_cb_t)_papplSystemWebAddPrinter, system);
-    }
-    if (system->options & PAPPL_SOPTIONS_MULTI_QUEUE)
-      papplSystemAddResourceCallback(system, "/config", "text/html", (pappl_resource_cb_t)_papplSystemWebConfig, system);
-    if (system->options & PAPPL_SOPTIONS_NETWORK)
-      papplSystemAddResourceCallback(system, "/network", "text/html", (pappl_resource_cb_t)_papplSystemWebNetwork, system);
-    if (system->options & PAPPL_SOPTIONS_SECURITY)
-      papplSystemAddResourceCallback(system, "/security", "text/html", (pappl_resource_cb_t)_papplSystemWebSecurity, system);
-#ifdef HAVE_GNUTLS
-    if (system->options & PAPPL_SOPTIONS_TLS)
-    {
-      papplSystemAddResourceCallback(system, "/tls-install-crt", "text/html", (pappl_resource_cb_t)_papplSystemWebTLSInstall, system);
-      papplSystemAddResourceCallback(system, "/tls-new-crt", "text/html", (pappl_resource_cb_t)_papplSystemWebTLSNew, system);
-      papplSystemAddResourceCallback(system, "/tls-new-csr", "text/html", (pappl_resource_cb_t)_papplSystemWebTLSNew, system);
-    }
-#endif // HAVE_GNUTLS
-  }
-
-  // Catch important signals...
-  papplLog(system, PAPPL_LOGLEVEL_INFO, "Starting system.");
-
-  signal(SIGTERM, sigterm_handler);
-  signal(SIGINT, sigterm_handler);
-  signal(SIGHUP, sighup_handler);
-
-  // Set the server header...
-  free(system->server_header);
-  if (system->versions[0].name[0])
-    snprintf(header, sizeof(header), "%s/%s PAPPL/" PAPPL_VERSION " CUPS IPP/2.0", system->versions[0].name, system->versions[0].sversion);
-  else
-    strlcpy(header, "Unknown PAPPL/" PAPPL_VERSION " CUPS IPP/2.0", sizeof(header));
-  system->server_header = strdup(header);
-
-  // Start the raw socket listeners as needed...
-  if (system->options & PAPPL_SOPTIONS_RAW_SOCKET)
-  {
-    pappl_printer_t	*printer;	// Current printer
-
-    for (printer = (pappl_printer_t *)cupsArrayFirst(system->printers); printer; printer = (pappl_printer_t *)cupsArrayNext(system->printers))
-    {
-      if (printer->num_listeners > 0)
-      {
-	pthread_t	tid;		// Thread ID
-
-	if (pthread_create(&tid, NULL, (void *(*)(void *))_papplPrinterRunRaw, printer))
-	{
-	  // Unable to create client thread...
-	  papplLogPrinter(printer, PAPPL_LOGLEVEL_ERROR, "Unable to create raw listener thread: %s", strerror(errno));
-	}
-	else
-	{
-	  // Detach the main thread from the raw thread to prevent hangs...
-	  pthread_detach(tid);
-	}
-      }
-    }
-  }
-
-  // Loop until we are shutdown or have a hard error...
-  while (!shutdown_system)
-  {
-    if (restart_logging)
-    {
-      restart_logging = false;
-      _papplLogOpen(system);
-    }
-
-    if ((count = poll(system->listeners, (nfds_t)system->num_listeners, 1000)) < 0 && errno != EINTR && errno != EAGAIN)
-    {
-      papplLog(system, PAPPL_LOGLEVEL_ERROR, "Unable to accept new connections: %s", strerror(errno));
-      break;
-    }
-
-    if (count > 0)
-    {
-      // Accept client connections as needed...
-      for (i = 0; i < system->num_listeners; i ++)
-      {
-	if (system->listeners[i].revents & POLLIN)
-	{
-	  if ((client = papplClientCreate(system, system->listeners[i].fd)) != NULL)
-	  {
-	    if (pthread_create(&client->thread_id, NULL, (void *(*)(void *))_papplClientRun, client))
-	    {
-	      // Unable to create client thread...
-	      papplLog(system, PAPPL_LOGLEVEL_ERROR, "Unable to create client thread: %s", strerror(errno));
-	      papplClientDelete(client);
-	    }
-	    else
-	    {
-	      // Detach the main thread from the client thread to prevent hangs...
-	      pthread_detach(client->thread_id);
-	    }
-	  }
-	}
-      }
-    }
-
-    dns_sd_host_changes = _papplDNSSDGetHostChanges();
-
-    if (system->dns_sd_any_collision || system->dns_sd_host_changes != dns_sd_host_changes)
-    {
-      // Handle name collisions...
-      pappl_printer_t	*printer;	// Current printer
-      bool		force_dns_sd = system->dns_sd_host_changes != dns_sd_host_changes;
-					// Force re-registration?
-
-      if (force_dns_sd)
-        papplSystemSetHostname(system, NULL);
-
-      pthread_rwlock_rdlock(&system->rwlock);
-
-      if (system->dns_sd_collision || force_dns_sd)
-        _papplSystemRegisterDNSSDNoLock(system);
-
-      for (printer = (pappl_printer_t *)cupsArrayFirst(system->printers); printer; printer = (pappl_printer_t *)cupsArrayNext(system->printers))
-      {
-        if (printer->dns_sd_collision || force_dns_sd)
-          _papplPrinterRegisterDNSSDNoLock(printer);
-      }
-
-      system->dns_sd_any_collision = false;
-      system->dns_sd_host_changes  = dns_sd_host_changes;
-
-      pthread_rwlock_unlock(&system->rwlock);
-    }
-
-    if (system->config_changes > system->save_changes)
-    {
-      system->save_changes = system->config_changes;
-
-      if (system->save_cb)
-      {
-        // Save the configuration...
-	(system->save_cb)(system, system->save_cbdata);
-      }
-    }
-
-    if (system->shutdown_time)
-    {
-      // Shutdown requested, see if we can do so safely...
-      int		count = 0;	// Number of active jobs
-      pappl_printer_t	*printer;	// Current printer
-
-      // Force shutdown after 60 seconds
-      if ((time(NULL) - system->shutdown_time) > 60)
-        break;
-
-      // Otherwise shutdown immediately if there are no more active jobs...
-      pthread_rwlock_rdlock(&system->rwlock);
-      for (printer = (pappl_printer_t *)cupsArrayFirst(system->printers); printer; printer = (pappl_printer_t *)cupsArrayNext(system->printers))
-      {
-        pthread_rwlock_rdlock(&printer->rwlock);
-        count += cupsArrayCount(printer->active_jobs);
-        pthread_rwlock_unlock(&printer->rwlock);
-      }
-      pthread_rwlock_unlock(&system->rwlock);
-
-      if (count == 0)
-        break;
-    }
-
-    // Clean out old jobs...
-    if (system->clean_time && time(NULL) >= system->clean_time)
-      papplSystemCleanJobs(system);
-  }
-
-  papplLog(system, PAPPL_LOGLEVEL_INFO, "Shutting down system.");
-
-  if (system->save_changes < system->config_changes && system->save_cb)
-  {
-    // Save the configuration...
-    (system->save_cb)(system, system->save_cbdata);
-  }
-
-  system->is_running = false;
-}
-
-
-//
 // '_papplSystemMakeUUID()' - Make a UUID for a system, printer, or job.
 //
 // Unlike httpAssembleUUID, this function does not introduce random data for
@@ -530,12 +347,411 @@ _papplSystemMakeUUID(
 
 
 //
+// 'papplSystemRun()' - Run the printer application.
+//
+// This function runs the printer application, accepting new connections,
+// handling requests, and processing jobs as needed.  It returns once the
+// system is shutdown, either through an IPP request or `SIGTERM`.
+//
+
+void
+papplSystemRun(pappl_system_t *system)	// I - System
+{
+  int			i,		// Looping var
+			count;		// Number of listeners that fired
+  pappl_client_t	*client;	// New client
+  char			header[HTTP_MAX_VALUE];
+					// Server: header value
+  int			dns_sd_host_changes;
+					// Current number of host name changes
+  pappl_printer_t	*printer;	// Current printer
+
+
+  // Range check...
+  if (!system)
+    return;
+
+  if (system->is_running)
+  {
+    papplLog(system, PAPPL_LOGLEVEL_FATAL, "Tried to run system when already running.");
+    return;
+  }
+
+  if (system->num_listeners == 0)
+  {
+    papplLog(system, PAPPL_LOGLEVEL_FATAL, "Tried to run system without listeners.");
+    return;
+  }
+
+  system->is_running = true;
+
+  // Add fallback resources...
+  papplSystemAddResourceData(system, "/favicon.png", "image/png", icon_md_png, sizeof(icon_md_png));
+  papplSystemAddResourceData(system, "/navicon.png", "image/png", icon_sm_png, sizeof(icon_sm_png));
+  papplSystemAddResourceString(system, "/style.css", "text/css", style_css);
+
+  if ((system->options & PAPPL_SOPTIONS_WEB_LOG) && system->logfile && strcmp(system->logfile, "-") && strcmp(system->logfile, "syslog"))
+  {
+    papplSystemAddResourceCallback(system, "/logfile.txt", "text/plain", (pappl_resource_cb_t)_papplSystemWebLogFile, system);
+    papplSystemAddResourceCallback(system, "/logs", "text/html", (pappl_resource_cb_t)_papplSystemWebLogs, system);
+  }
+
+  if (system->options & PAPPL_SOPTIONS_WEB_INTERFACE)
+  {
+    if (system->options & PAPPL_SOPTIONS_MULTI_QUEUE)
+    {
+      papplSystemAddResourceCallback(system, "/", "text/html", (pappl_resource_cb_t)_papplSystemWebHome, system);
+      papplSystemAddResourceCallback(system, "/addprinter", "text/html", (pappl_resource_cb_t)_papplSystemWebAddPrinter, system);
+    }
+    if (system->options & PAPPL_SOPTIONS_MULTI_QUEUE)
+    {
+      papplSystemAddResourceCallback(system, "/addscanner", "text/html", (pappl_resource_cb_t)_papplSystemWebAddScanner, system);
+    }
+    if (system->options & PAPPL_SOPTIONS_MULTI_QUEUE)
+      papplSystemAddResourceCallback(system, "/config", "text/html", (pappl_resource_cb_t)_papplSystemWebConfig, system);
+    if (system->options & PAPPL_SOPTIONS_WEB_NETWORK)
+      papplSystemAddResourceCallback(system, "/network", "text/html", (pappl_resource_cb_t)_papplSystemWebNetwork, system);
+    if (system->options & PAPPL_SOPTIONS_WEB_SECURITY)
+      papplSystemAddResourceCallback(system, "/security", "text/html", (pappl_resource_cb_t)_papplSystemWebSecurity, system);
+#ifdef HAVE_GNUTLS
+    if (system->options & PAPPL_SOPTIONS_WEB_TLS)
+    {
+      papplSystemAddResourceCallback(system, "/tls-install-crt", "text/html", (pappl_resource_cb_t)_papplSystemWebTLSInstall, system);
+      papplSystemAddResourceCallback(system, "/tls-new-crt", "text/html", (pappl_resource_cb_t)_papplSystemWebTLSNew, system);
+      papplSystemAddResourceCallback(system, "/tls-new-csr", "text/html", (pappl_resource_cb_t)_papplSystemWebTLSNew, system);
+    }
+#endif // HAVE_GNUTLS
+  }
+
+  // Catch important signals...
+  papplLog(system, PAPPL_LOGLEVEL_INFO, "Starting system.");
+
+  signal(SIGTERM, sigterm_handler);
+  signal(SIGINT, sigterm_handler);
+  signal(SIGHUP, sighup_handler);
+
+  // Set the server header...
+  free(system->server_header);
+  if (system->versions[0].name[0])
+  {
+    char	safe_name[64],		// "Safe" name
+		*safe_ptr;		// Pointer into "safe" name
+
+    // Replace spaces and other not-allowed characters in the firmware name
+    // with an underscore...
+    strlcpy(safe_name, system->versions[0].name, sizeof(safe_name));
+    for (safe_ptr = safe_name; *safe_ptr; safe_ptr ++)
+    {
+      if (*safe_ptr <= ' ' || *safe_ptr == '/' || *safe_ptr == 0x7f || (*safe_ptr & 0x80))
+        *safe_ptr = '_';
+    }
+
+    // Format the server header using the sanitized firmware name and version...
+    snprintf(header, sizeof(header), "%s/%s PAPPL/" PAPPL_VERSION " CUPS IPP/2.0", safe_name, system->versions[0].sversion);
+  }
+  else
+  {
+    // If no version information is registered, just say "unknown" for the
+    // main name...
+    strlcpy(header, "Unknown PAPPL/" PAPPL_VERSION " CUPS IPP/2.0", sizeof(header));
+  }
+  system->server_header = strdup(header);
+
+  // Make the static attributes...
+  make_attributes(system);
+
+  // Advertise the system via DNS-SD as needed...
+  if (system->dns_sd_name)
+    _papplSystemRegisterDNSSDNoLock(system);
+
+  // Start up printers...
+  for (printer = (pappl_printer_t *)cupsArrayFirst(system->printers); printer; printer = (pappl_printer_t *)cupsArrayNext(system->printers))
+  {
+    // Advertise via DNS-SD as needed...
+    if (printer->dns_sd_name)
+      _papplPrinterRegisterDNSSDNoLock(printer);
+
+    // Start the raw socket listeners as needed...
+    if ((system->options & PAPPL_SOPTIONS_RAW_SOCKET) && printer->num_listeners > 0)
+    {
+      pthread_t	tid;		// Thread ID
+
+      if (pthread_create(&tid, NULL, (void *(*)(void *))_papplPrinterRunRaw, printer))
+      {
+	// Unable to create listener thread...
+	papplLogPrinter(printer, PAPPL_LOGLEVEL_ERROR, "Unable to create raw listener thread: %s", strerror(errno));
+      }
+      else
+      {
+	// Detach the main thread from the raw thread to prevent hangs...
+	pthread_detach(tid);
+      }
+    }
+  }
+
+  // Start the USB listener as needed...
+  if (system->options & PAPPL_SOPTIONS_USB_PRINTER)
+  {
+    // USB support is limited to a single (default) printer...
+    if ((printer = papplSystemFindPrinter(system, NULL, system->default_printer_id, NULL)) != NULL)
+    {
+      pthread_t	tid;			// Thread ID
+
+      if (pthread_create(&tid, NULL, (void *(*)(void *))_papplPrinterRunUSB, printer))
+      {
+	// Unable to create USB thread...
+	papplLogPrinter(printer, PAPPL_LOGLEVEL_ERROR, "Unable to create USB printer thread: %s", strerror(errno));
+      }
+      else
+      {
+	// Detach the main thread from the raw thread to prevent hangs...
+	pthread_detach(tid);
+      }
+    }
+  }
+
+  // Loop until we are shutdown or have a hard error...
+  while (!shutdown_system)
+  {
+    if (restart_logging)
+    {
+      restart_logging = false;
+      _papplLogOpen(system);
+    }
+
+    if ((count = poll(system->listeners, (nfds_t)system->num_listeners, 1000)) < 0 && errno != EINTR && errno != EAGAIN)
+    {
+      papplLog(system, PAPPL_LOGLEVEL_ERROR, "Unable to accept new connections: %s", strerror(errno));
+      break;
+    }
+
+    if (count > 0)
+    {
+      // Accept client connections as needed...
+      for (i = 0; i < system->num_listeners; i ++)
+      {
+	if (system->listeners[i].revents & POLLIN)
+	{
+	  if ((client = _papplClientCreate(system, system->listeners[i].fd)) != NULL)
+	  {
+	    if (pthread_create(&client->thread_id, NULL, (void *(*)(void *))_papplClientRun, client))
+	    {
+	      // Unable to create client thread...
+	      papplLog(system, PAPPL_LOGLEVEL_ERROR, "Unable to create client thread: %s", strerror(errno));
+	      _papplClientDelete(client);
+	    }
+	    else
+	    {
+	      // Detach the main thread from the client thread to prevent hangs...
+	      pthread_detach(client->thread_id);
+	    }
+	  }
+	}
+      }
+    }
+
+    dns_sd_host_changes = _papplDNSSDGetHostChanges();
+
+    if (system->dns_sd_any_collision || system->dns_sd_host_changes != dns_sd_host_changes)
+    {
+      // Handle name collisions...
+      bool		force_dns_sd = system->dns_sd_host_changes != dns_sd_host_changes;
+					// Force re-registration?
+
+      if (force_dns_sd)
+        papplSystemSetHostname(system, NULL);
+
+      pthread_rwlock_rdlock(&system->rwlock);
+
+      if (system->dns_sd_collision || force_dns_sd)
+        _papplSystemRegisterDNSSDNoLock(system);
+
+      for (printer = (pappl_printer_t *)cupsArrayFirst(system->printers); printer; printer = (pappl_printer_t *)cupsArrayNext(system->printers))
+      {
+        if (printer->dns_sd_collision || force_dns_sd)
+          _papplPrinterRegisterDNSSDNoLock(printer);
+      }
+
+      system->dns_sd_any_collision = false;
+      system->dns_sd_host_changes  = dns_sd_host_changes;
+
+      pthread_rwlock_unlock(&system->rwlock);
+    }
+
+    if (system->config_changes > system->save_changes)
+    {
+      system->save_changes = system->config_changes;
+
+      if (system->save_cb)
+      {
+        // Save the configuration...
+	(system->save_cb)(system, system->save_cbdata);
+      }
+    }
+
+    if (system->shutdown_time)
+    {
+      // Shutdown requested, see if we can do so safely...
+      int		jcount = 0;	// Number of active jobs
+
+      // Force shutdown after 60 seconds
+      if ((time(NULL) - system->shutdown_time) > 60)
+        break;
+
+      // Otherwise shutdown immediately if there are no more active jobs...
+      pthread_rwlock_rdlock(&system->rwlock);
+      for (printer = (pappl_printer_t *)cupsArrayFirst(system->printers); printer; printer = (pappl_printer_t *)cupsArrayNext(system->printers))
+      {
+        pthread_rwlock_rdlock(&printer->rwlock);
+        jcount += cupsArrayCount(printer->active_jobs);
+        pthread_rwlock_unlock(&printer->rwlock);
+      }
+      pthread_rwlock_unlock(&system->rwlock);
+
+      if (jcount == 0)
+        break;
+    }
+
+    // Clean out old jobs...
+    if (system->clean_time && time(NULL) >= system->clean_time)
+      papplSystemCleanJobs(system);
+  }
+
+  papplLog(system, PAPPL_LOGLEVEL_INFO, "Shutting down system.");
+
+  ippDelete(system->attrs);
+  system->attrs = NULL;
+
+  if (system->dns_sd_name)
+    _papplSystemUnregisterDNSSDNoLock(system);
+
+  for (printer = (pappl_printer_t *)cupsArrayFirst(system->printers); printer; printer = (pappl_printer_t *)cupsArrayNext(system->printers))
+  {
+    // Advertise via DNS-SD as needed...
+    if (printer->dns_sd_name)
+      _papplPrinterUnregisterDNSSDNoLock(printer);
+  }
+
+  if (system->save_changes < system->config_changes && system->save_cb)
+  {
+    // Save the configuration...
+    (system->save_cb)(system, system->save_cbdata);
+  }
+
+  system->is_running = false;
+
+  if (system->options & PAPPL_SOPTIONS_USB_PRINTER)
+    sleep(2);
+}
+
+
+//
+// 'papplSystemShutdown()' - Shutdown the system.
+//
+// This function tells the system to perform an orderly shutdown of all printers
+// and to terminate the main loop.
+//
+
+void
+papplSystemShutdown(
+    pappl_system_t *system)		// I - System
+{
+  if (system && !system->shutdown_time)
+    system->shutdown_time = time(NULL);
+}
+
+
+//
+// 'make_attributes()' - Make the static attributes for the system.
+//
+
+static void
+make_attributes(pappl_system_t *system)	// I - System
+{
+  int			i;		// Looping var
+  ipp_attribute_t	*attr;		// Attribute
+  static const char * const printer_creation_attributes_supported[] =
+  {					// "printer-creation-attributes-supported" Values
+    "copies-default",
+    "finishings-col-default",
+    "finishings-default",
+    "media-col-default",
+    "media-default",
+    "orientation-requested-default",
+    "print-color-mode-default",
+    "print-content-optimize-default",
+    "print-quality-default",
+    "printer-contact-col",
+    "printer-device-id",
+    "printer-dns-sd-name",
+    "printer-geo-location",
+    "printer-location",
+    "printer-name",
+    "printer-resolution-default",
+    "smi2699-device-command",
+    "smi2699-device-uri"
+  };
+  static const char * const system_mandatory_printer_attributes[] =
+  {					// "system-mandatory-printer-attributes" values
+    "printer-name",
+    "smi2699-device-command",
+    "smi2699-device-uri"
+  };
+  static const char * const system_settable_attributes_supported[] =
+  {					// "system-settable-attributes-supported" values
+    "system-contact-col",
+    "system-default-printer-id",
+    "system-dns-sd-name",
+    "system-geo-location",
+    "system-location",
+    "system-name",
+    "system-organization",
+    "system-organizational-unit"
+  };
+
+
+  system->attrs = ippNew();
+
+  // printer-creation-attributes-supported
+  ippAddStrings(system->attrs, IPP_TAG_SYSTEM, IPP_CONST_TAG(IPP_TAG_KEYWORD), "printer-creation-attributes-supported", (int)(sizeof(printer_creation_attributes_supported) / sizeof(printer_creation_attributes_supported[0])), NULL, printer_creation_attributes_supported);
+
+  // smi2699-device-command-supported
+  if (system->num_drivers > 0)
+  {
+    int num_drivers = system->num_drivers;
+					// Number of drivers to report
+    if (system->autoadd_cb)
+      num_drivers ++;
+
+    attr = ippAddStrings(system->attrs, IPP_TAG_SYSTEM, IPP_CONST_TAG(IPP_TAG_NAME), "smi2699-device-command-supported", num_drivers, NULL, NULL);
+
+    for (i = 0; i < system->num_drivers; i ++)
+      ippSetString(system->attrs, &attr, i, system->drivers[i].name);
+
+    if (system->autoadd_cb)
+      ippSetString(system->attrs, &attr, system->num_drivers, "auto");
+  }
+
+  // smi2699-device-uri-schemes-supported
+  _papplDeviceAddSupportedSchemes(system->attrs);
+
+  // system-mandatory-printer-attributes
+  ippAddStrings(system->attrs, IPP_TAG_SYSTEM, IPP_CONST_TAG(IPP_TAG_KEYWORD), "system-mandatory-printer-attributes", (int)(sizeof(system_mandatory_printer_attributes) / sizeof(system_mandatory_printer_attributes[0])), NULL, system_mandatory_printer_attributes);
+
+  // system-settable-attributes-supported
+  ippAddStrings(system->attrs, IPP_TAG_SYSTEM, IPP_CONST_TAG(IPP_TAG_KEYWORD), "system-settable-attributes-supported", (int)(sizeof(system_settable_attributes_supported) / sizeof(system_settable_attributes_supported[0])), NULL, system_settable_attributes_supported);
+}
+
+
+//
 // 'sighup_handler()' - SIGHUP handler
 //
 
 static void
-sighup_handler(int sig)     // I - Signal
+sighup_handler(int sig)			// I - Signal (ignored)
 {
+  (void)sig;
+
   restart_logging = true;
 }
 
@@ -547,5 +763,7 @@ sighup_handler(int sig)     // I - Signal
 static void
 sigterm_handler(int sig)		// I - Signal (ignored)
 {
+  (void)sig;
+
   shutdown_system = true;
 }

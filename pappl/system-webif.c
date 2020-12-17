@@ -22,10 +22,21 @@
 
 
 //
+// Local types...
+//
+
+typedef struct _pappl_system_dev_s	// System device callback data
+{
+  pappl_client_t	*client;	// Client connection
+  const char		*device_uri;	// Current device URI
+} _pappl_system_dev_t;
+
+
+//
 // Local functions...
 //
 
-static bool	system_device_cb(const char *device_uri, const char *device_id, void *data);
+static bool	system_device_cb(const char *device_info, const char *device_uri, const char *device_id, void *data);
 static void	system_footer(pappl_client_t *client);
 static void	system_header(pappl_client_t *client, const char *title);
 
@@ -310,11 +321,12 @@ _papplSystemWebAddPrinter(
   const char	*status = NULL;		// Status message, if any
   char		printer_name[128] = "",	// Printer Name
 		driver_name[128] = "",	// Driver Name
-		device_uri[128] = "",	// Device URI
+		device_uri[1024] = "",	// Device URI
 		*device_id = NULL,	// Device ID
 		hostname[256] = "",	// Hostname
 		*ptr;			// Pointer into string
   int		port = 0;		// Default port for Socket printing
+  _pappl_system_dev_t devdata;		// Device callback data
   static const char *hostname_pattern =	// IP address or hostname pattern
 		// Hostname per RFC 1123
 		"(^\\s*((?=.{1,255}$)[0-9A-Za-z](?:(?:[0-9A-Za-z]|\\b-){0,61}[0-9A-Za-z])?(?:\\.[0-9A-Za-z](?:(?:[0-9A-Za-z]|\\b-){0,61}[0-9A-Za-z])?)*\\.?)\\s*$)"
@@ -339,7 +351,7 @@ _papplSystemWebAddPrinter(
     {
       status = "Invalid form data.";
     }
-    else if (!papplClientValidateForm(client, num_form, form))
+    else if (!papplClientIsValidForm(client, num_form, form))
     {
       status = "Invalid form submission.";
     }
@@ -389,7 +401,8 @@ _papplSystemWebAddPrinter(
 	  }
 	}
       }
-      else if (!printer_name[0])
+
+      if (!printer_name[0])
       {
         status = "Please enter a printer name.";
       }
@@ -401,9 +414,9 @@ _papplSystemWebAddPrinter(
       {
         status = "Please select a driver.";
       }
-      else
+      else if (!status)
       {
-        pappl_printer_t *printer = papplPrinterCreate(system, PAPPL_SERVICE_TYPE_PRINT, 0, printer_name, driver_name, device_id, device_uri);
+        pappl_printer_t *printer = papplPrinterCreate(system, 0, printer_name, driver_name, device_id, device_uri);
 					// New printer
 
         if (printer)
@@ -411,6 +424,19 @@ _papplSystemWebAddPrinter(
           papplClientRespondRedirect(client, HTTP_STATUS_FOUND, printer->uriname);
           cupsFreeOptions(num_form, form);
           return;
+	}
+
+        switch (errno)
+        {
+          case EEXIST :
+	      status = "A printer with that name already exists.";
+              break;
+          case EIO :
+              status = "Unable to use that driver.";
+              break;
+	  default :
+	      status = strerror(errno);
+	      break;
 	}
       }
     }
@@ -425,21 +451,27 @@ _papplSystemWebAddPrinter(
 
   papplClientHTMLStartForm(client, client->uri, false);
 
-  papplClientHTMLPuts(client,
-		      "          <table class=\"form\">\n"
-		      "            <tbody>\n"
-		      "              <tr><th><label for=\"printer_name\">Name:</label></th><td><input type=\"text\" name=\"printer_name\" placeholder=\"Name of printer\" required></td></tr>\n"
-		      "              <tr><th><label for=\"device_uri\">Device:</label></th><td><select name=\"device_uri\" id=\"device_uri\"><option value=\"\">Select Device</option>");
+  papplClientHTMLPrintf(client,
+			"          <table class=\"form\">\n"
+			"            <tbody>\n"
+			"              <tr><th><label for=\"printer_name\">Name:</label></th><td><input type=\"text\" name=\"printer_name\" placeholder=\"Name of printer\" value=\"%s\" required></td></tr>\n"
+			"              <tr><th><label for=\"device_uri\">Device:</label></th><td><select name=\"device_uri\" id=\"device_uri\"><option value=\"\">Select Device</option>", printer_name);
 
-  papplDeviceList(PAPPL_DTYPE_ALL, system_device_cb, client, papplLogDevice, system);
+  devdata.client     = client;
+  devdata.device_uri = device_uri;
+
+  papplDeviceList(PAPPL_DEVTYPE_ALL, system_device_cb, &devdata, papplLogDevice, system);
 
   papplClientHTMLPrintf(client,
 			"<option value=\"socket\">Network Printer</option></tr>\n"
-			"              <tr><th><label for=\"hostname\">Hostname/IP Address:</label></th><td><input type=\"text\" name=\"hostname\" id=\"hostname\" placeholder=\"IP address or hostname\" pattern=\"%s\" value=\"%s\" disabled=\"disabled\"></td></tr>\n"
-			"              <tr><th><label for=\"driver_name\">Driver Name:</label></th><td><select name=\"driver_name\"><option value=\"\">Select Driver</option>\n", hostname_pattern, hostname);
+			"              <tr><th><label for=\"hostname\">Hostname/IP Address:</label></th><td><input type=\"text\" name=\"hostname\" id=\"hostname\" placeholder=\"IP address or hostname   \" pattern=\"%s\" value=\"%s\" disabled=\"disabled\"></td></tr>\n"
+			"              <tr><th><label for=\"driver_name\">Driver Name:</label></th><td><select name=\"driver_name\"><option value=\"\">Select Driver</option>", hostname_pattern, hostname);
 
-  for (i = 0; i < system->num_pdrivers; i ++)
-    papplClientHTMLPrintf(client, "<option value=\"%s\">%s</option>", system->pdrivers[i], system->pdrivers_desc[i]);
+  if (system->autoadd_cb)
+    papplClientHTMLPrintf(client, "<option value=\"auto\"%s>Auto-Detect Driver</option>", !strcmp(driver_name, "auto") ? " selected" : "");
+
+  for (i = 0; i < system->num_drivers; i ++)
+    papplClientHTMLPrintf(client, "<option value=\"%s\"%s>%s</option>", system->drivers[i].name, !strcmp(system->drivers[i].name, driver_name) ? " selected" : "", system->drivers[i].description);
 
   papplClientHTMLPuts(client,
 		      "</select></td></tr>\n"
@@ -461,6 +493,190 @@ _papplSystemWebAddPrinter(
   system_footer(client);
 }
 
+//
+// '_papplSystemAddScanner()' - Add a scanner
+//
+
+void
+_papplSystemWebAddScanner(
+    pappl_client_t *client,
+    pappl_system_t *system)
+{
+  int		i;			// Looping var
+  const char	*status = NULL;		// Status message, if any
+  char		scanner_name[128] = "",	// Scanner Name
+		driver_name[128] = "",	// Driver Name
+		device_uri[1024] = "",	// Device URI
+		*device_id = NULL,	// Device ID
+		hostname[256] = "",	// Hostname
+		*ptr;			// Pointer into string
+  int		port = 0;		// Default port for Socket scanning
+  _pappl_system_dev_t devdata;		// Device callback data
+  static const char *hostname_pattern =	// IP address or hostname pattern
+		// Hostname per RFC 1123
+		"(^\\s*((?=.{1,255}$)[0-9A-Za-z](?:(?:[0-9A-Za-z]|\\b-){0,61}[0-9A-Za-z])?(?:\\.[0-9A-Za-z](?:(?:[0-9A-Za-z]|\\b-){0,61}[0-9A-Za-z])?)*\\.?)\\s*$)"
+		"|"
+		// IPv4 address
+		"(^\\s*((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?))\\s*$)"
+		"|"
+		// IPv6 address
+		"(^\\s*((([0-9A-Fa-f]{1,4}:){7}([0-9A-Fa-f]{1,4}|:))|(([0-9A-Fa-f]{1,4}:){6}(:[0-9A-Fa-f]{1,4}|((25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)(\\.(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)){3})|:))|(([0-9A-Fa-f]{1,4}:){5}(((:[0-9A-Fa-f]{1,4}){1,2})|:((25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)(\\.(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)){3})|:))|(([0-9A-Fa-f]{1,4}:){4}(((:[0-9A-Fa-f]{1,4}){1,3})|((:[0-9A-Fa-f]{1,4})?:((25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)(\\.(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)){3}))|:))|(([0-9A-Fa-f]{1,4}:){3}(((:[0-9A-Fa-f]{1,4}){1,4})|((:[0-9A-Fa-f]{1,4}){0,2}:((25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)(\\.(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)){3}))|:))|(([0-9A-Fa-f]{1,4}:){2}(((:[0-9A-Fa-f]{1,4}){1,5})|((:[0-9A-Fa-f]{1,4}){0,3}:((25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)(\\.(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)){3}))|:))|(([0-9A-Fa-f]{1,4}:){1}(((:[0-9A-Fa-f]{1,4}){1,6})|((:[0-9A-Fa-f]{1,4}){0,4}:((25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)(\\.(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)){3}))|:))|(:(((:[0-9A-Fa-f]{1,4}){1,7})|((:[0-9A-Fa-f]{1,4}){0,5}:((25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)(\\.(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)){3}))|:)))(%.+)?\\s*$)";
+
+
+  if (!papplClientHTMLAuthorize(client))
+    return;
+
+  if (client->operation == HTTP_STATE_POST)
+  {
+    const char		*value;		// Form value
+    int			num_form = 0;	// Number of form variable
+    cups_option_t	*form = NULL;	// Form variables
+
+    if ((num_form = papplClientGetForm(client, &form)) == 0)
+    {
+      status = "Invalid form data.";
+    }
+    else if (!papplClientIsValidForm(client, num_form, form))
+    {
+      status = "Invalid form submission.";
+    }
+    else
+    {
+      http_addrlist_t	*list;		// Address list
+
+      if ((value = cupsGetOption("scanner_name", num_form, form)) != NULL)
+        strlcpy(scanner_name, value, sizeof(scanner_name));
+      if ((value = cupsGetOption("driver_name", num_form, form)) != NULL)
+        strlcpy(driver_name, value, sizeof(driver_name));
+      if ((value = cupsGetOption("device_uri", num_form, form)) != NULL)
+      {
+        strlcpy(device_uri, value, sizeof(device_uri));
+        if ((device_id = strchr(device_uri, '|')) != NULL)
+          *device_id++ = '\0';
+      }
+
+      if (!strcmp(device_uri, "socket"))
+      {
+        // Make URI using hostname
+        if ((value = cupsGetOption("hostname", num_form, form)) == NULL)
+        {
+          status        = "Please enter a hostname or IP address for the scanner.";
+          device_uri[0] = '\0';
+	}
+	else
+	{
+	  // Break out the port number, if present...
+	  strlcpy(hostname, value, sizeof(hostname));
+	  if ((ptr = strrchr(hostname, ':')) != NULL && !strchr(ptr, ']'))
+	  {
+	    *ptr++ = '\0';
+	    port   = atoi(ptr);
+	  }
+
+          // Then see if we can lookup the hostname or IP address (port number
+          // isn't used here...)
+          if ((list = httpAddrGetList(hostname, AF_UNSPEC, "9100")) == NULL)
+          {
+            status = "Unable to lookup address.";
+	  }
+	  else
+	  {
+	    httpAddrFreeList(list);
+	    httpAssembleURI(HTTP_URI_CODING_ALL, device_uri, sizeof(device_uri), "socket", NULL, hostname, port, "/");
+	  }
+	}
+      }
+
+      if (!scanner_name[0])
+      {
+        status = "Please enter a scanner name.";
+      }
+      else if (!device_uri[0])
+      {
+        status = "Please select a device.";
+      }
+      else if (!driver_name[0])
+      {
+        status = "Please select a driver.";
+      }
+      else if (!status)
+      {
+        pappl_printer_t *scanner = papplPrinterCreate(system, 0, scanner_name, driver_name, device_id, device_uri);
+					// New scanner
+
+        if (scanner)
+        {
+          papplClientRespondRedirect(client, HTTP_STATUS_FOUND, scanner->uriname);
+          cupsFreeOptions(num_form, form);
+          return;
+	}
+
+        switch (errno)
+        {
+          case EEXIST :
+	      status = "A scanner with that name already exists.";
+              break;
+          case EIO :
+              status = "Unable to use that driver.";
+              break;
+	  default :
+	      status = strerror(errno);
+	      break;
+	}
+      }
+    }
+
+    cupsFreeOptions(num_form, form);
+  }
+
+  system_header(client, "Add Scanner");
+
+  if (status)
+    papplClientHTMLPrintf(client, "<div class=\"banner\">%s</div>\n", status);
+
+  papplClientHTMLStartForm(client, client->uri, false);
+
+  papplClientHTMLPrintf(client,
+			"          <table class=\"form\">\n"
+			"            <tbody>\n"
+			"              <tr><th><label for=\"scanner_name\">Name:</label></th><td><input type=\"text\" name=\"scanner_name\" placeholder=\"Name of scanner\" value=\"%s\" required></td></tr>\n"
+			"              <tr><th><label for=\"device_uri\">Device:</label></th><td><select name=\"device_uri\" id=\"device_uri\"><option value=\"\">Select Device</option>", scanner_name);
+
+  devdata.client     = client;
+  devdata.device_uri = device_uri;
+
+  papplDeviceList(PAPPL_DEVTYPE_ALL, system_device_cb, &devdata, papplLogDevice, system);
+
+  papplClientHTMLPrintf(client,
+			"<option value=\"socket\">Network Scanner</option></tr>\n"
+			"              <tr><th><label for=\"hostname\">Hostname/IP Address:</label></th><td><input type=\"text\" name=\"hostname\" id=\"hostname\" placeholder=\"IP address or hostname\" pattern=\"%s\" value=\"%s\" disabled=\"disabled\"></td></tr>\n"
+			"              <tr><th><label for=\"driver_name\">Driver Name:</label></th><td><select name=\"driver_name\"><option value=\"\">Select Driver</option>", hostname_pattern, hostname);
+
+  if (system->autoadd_cb)
+    papplClientHTMLPrintf(client, "<option value=\"auto\"%s>Auto-Detect Driver</option>", !strcmp(driver_name, "auto") ? " selected" : "");
+
+  for (i = 0; i < system->num_drivers; i ++)
+    papplClientHTMLPrintf(client, "<option value=\"%s\"%s>%s</option>", system->drivers[i].name, !strcmp(system->drivers[i].name, driver_name) ? " selected" : "", system->drivers[i].description);
+
+  papplClientHTMLPuts(client,
+		      "</select></td></tr>\n"
+		      "             <tr><th></th><td><input type=\"submit\" value=\"Add Scanner\"></td></tr>\n"
+		      "            </tbody></table>\n"
+		      "           </form>\n"
+		      "          <script>document.forms['form']['device_uri'].onchange = function () {\n"
+		      "  if (this.value == 'socket') {\n"
+		      "    document.forms['form']['hostname'].disabled = false;\n"
+		      "    document.forms['form']['hostname'].required = true;\n"
+		      "  } else {\n"
+		      "    document.forms['form']['hostname'].disabled = true;\n"
+		      "    document.forms['form']['hostname'].required = false;\n"
+		      "  }\n"
+		      "}</script>\n"
+		      "         </div>\n"
+		      "       </div>\n");
+
+  system_footer(client);
+}
 
 //
 // '_papplSystemWebConfig()' - Show the system configuration page.
@@ -490,7 +706,7 @@ _papplSystemWebConfig(
 
     if ((num_form = papplClientGetForm(client, &form)) == 0)
       status = "Invalid form data.";
-    else if (!papplClientValidateForm(client, num_form, form))
+    else if (!papplClientIsValidForm(client, num_form, form))
       status = "Invalid form submission.";
     else
     {
@@ -605,10 +821,13 @@ _papplSystemWebHome(
   papplClientHTMLPrintf(client,
 		      "        </div>\n"
                       "        <div class=\"col-6\">\n"
-                      "          <h1 class=\"title\">Printers</h1>\n"
+                      "          <h1 class=\"title\">Printers and Scanners</h1>\n"
                       "          <a class=\"btn\" href=\"https://%s:%d/addprinter\">Add Printer</a>", client->host_field, client->host_port);
+                    
+  papplClientHTMLPrintf(client,
+                      "          <a class=\"btn\" href=\"https://%s:%d/addscanner\">Add Scanner</a>", client->host_field, client->host_port);
 
-  papplSystemIteratePrinters(system, (pappl_printer_cb_t)_papplPrinterIteratorWebCallback, client);
+  papplSystemIteratePrinters(system, (pappl_printer_cb_t)_papplPrinterWebIteratorCallback, client);
 
   papplClientHTMLPuts(client,
                       "        </div>\n"
@@ -657,7 +876,7 @@ _papplSystemWebLogFile(
     if ((fd = open(system->logfile, O_RDONLY)) < 0)
     {
       papplLogClient(client, PAPPL_LOGLEVEL_ERROR, "Unable to open log file '%s': %s", system->logfile, strerror(errno));
-      papplClientRespondHTTP(client, HTTP_STATUS_SERVER_ERROR, NULL, NULL, 0, 0);
+      papplClientRespond(client, HTTP_STATUS_SERVER_ERROR, NULL, NULL, 0, 0);
       return;
     }
 
@@ -665,20 +884,20 @@ _papplSystemWebLogFile(
     if (fstat(fd, &loginfo))
     {
       papplLogClient(client, PAPPL_LOGLEVEL_ERROR, "Unable to access log file '%s': %s", system->logfile, strerror(errno));
-      papplClientRespondHTTP(client, HTTP_STATUS_SERVER_ERROR, NULL, NULL, 0, 0);
+      papplClientRespond(client, HTTP_STATUS_SERVER_ERROR, NULL, NULL, 0, 0);
       return;
     }
 
     // Write the log in the range
     if (low > loginfo.st_size)
     {
-      length = loginfo.st_size;
+      length = (size_t)loginfo.st_size;
       code   = HTTP_STATUS_OK;
       low    = 0;
     }
     else if (high < 0)
     {
-      length = loginfo.st_size - (size_t)low;
+      length = (size_t)loginfo.st_size - (size_t)low;
       code   = HTTP_STATUS_PARTIAL_CONTENT;
     }
     else
@@ -692,10 +911,10 @@ _papplSystemWebLogFile(
     httpSetField(client->http, HTTP_FIELD_CONTENT_TYPE, "text/plain");
 
     // Seek to position low in log
-    if ((bytes = lseek(fd, (size_t)low, SEEK_CUR)) < 0)
+    if (lseek(fd, (off_t)low, SEEK_CUR) < 0)
     {
       papplLogClient(client, PAPPL_LOGLEVEL_ERROR, "Unable to seek to offset %ld in log file '%s': %s", low, system->logfile, strerror(errno));
-      papplClientRespondHTTP(client, HTTP_STATUS_SERVER_ERROR, NULL, NULL, 0, 0);
+      papplClientRespond(client, HTTP_STATUS_SERVER_ERROR, NULL, NULL, 0, 0);
       return;
     }
 
@@ -707,10 +926,10 @@ _papplSystemWebLogFile(
     // Read buffer and write to client
     while (length > 0 && (bytes = read(fd, buffer, sizeof(buffer))) > 0)
     {
-      if (bytes > length)
-        bytes = length;
+      if ((size_t)bytes > length)
+        bytes = (ssize_t)length;
 
-      length -= bytes;
+      length -= (size_t)bytes;
       httpWrite2(client->http, buffer, (size_t)bytes);
     }
 
@@ -719,7 +938,7 @@ _papplSystemWebLogFile(
     close(fd);
   }
   else
-    papplClientRespondHTTP(client, HTTP_STATUS_BAD_REQUEST, NULL, NULL, 0, 0);
+    papplClientRespond(client, HTTP_STATUS_BAD_REQUEST, NULL, NULL, 0, 0);
 }
 
 
@@ -758,7 +977,7 @@ _papplSystemWebLogs(
     {
       status = "Invalid form data.";
     }
-    else if (!papplClientValidateForm(client, num_form, form))
+    else if (!papplClientIsValidForm(client, num_form, form))
     {
       status = "Invalid form submission.";
     }
@@ -868,7 +1087,7 @@ _papplSystemWebNetwork(
     {
       status = "Invalid form data.";
     }
-    else if (!papplClientValidateForm(client, num_form, form))
+    else if (!papplClientIsValidForm(client, num_form, form))
     {
       status = "Invalid form submission.";
     }
@@ -913,11 +1132,11 @@ _papplSystemWebNetwork(
       httpAddrString((http_addr_t *)addr->ifa_addr, temp, sizeof(temp));
       tempptr = temp;
 
-      if (!strcmp(addr->ifa_name, "wlan0"))
+      if (!strcmp(addr->ifa_name, "wlan0") || !strcmp(addr->ifa_name, "wlp2s0"))
         papplClientHTMLPrintf(client, "Wi-Fi: %s<br>", tempptr);
       else if (!strncmp(addr->ifa_name, "wlan", 4) && isdigit(addr->ifa_name[4]))
         papplClientHTMLPrintf(client, "Wi-Fi %d: %s<br>", atoi(addr->ifa_name + 4) + 1, tempptr);
-      else if (!strcmp(addr->ifa_name, "en0") || !strcmp(addr->ifa_name, "eth0"))
+      else if (!strcmp(addr->ifa_name, "en0") || !strcmp(addr->ifa_name, "eth0") || !strncmp(addr->ifa_name, "enx", 3))
         papplClientHTMLPrintf(client, "Ethernet: %s<br>", tempptr);
       else if (!strncmp(addr->ifa_name, "en", 2) && isdigit(addr->ifa_name[2]))
         papplClientHTMLPrintf(client, "Ethernet %d: %s<br>", atoi(addr->ifa_name + 2) + 1, tempptr);
@@ -948,11 +1167,11 @@ _papplSystemWebNetwork(
       else
         tempptr = temp;
 
-      if (!strcmp(addr->ifa_name, "wlan0"))
+      if (!strcmp(addr->ifa_name, "wlan0") || !strcmp(addr->ifa_name, "wlp2s0"))
         papplClientHTMLPrintf(client, "Wi-Fi: %s<br>", tempptr);
       else if (!strncmp(addr->ifa_name, "wlan", 4) && isdigit(addr->ifa_name[4]))
         papplClientHTMLPrintf(client, "Wi-Fi %d: %s<br>", atoi(addr->ifa_name + 4) + 1, tempptr);
-      else if (!strcmp(addr->ifa_name, "en0") || !strcmp(addr->ifa_name, "eth0"))
+      else if (!strcmp(addr->ifa_name, "en0") || !strcmp(addr->ifa_name, "eth0") || !strncmp(addr->ifa_name, "enx", 3))
         papplClientHTMLPrintf(client, "Ethernet: %s<br>", tempptr);
       else if (!strncmp(addr->ifa_name, "en", 2) && isdigit(addr->ifa_name[2]))
         papplClientHTMLPrintf(client, "Ethernet %d: %s<br>", atoi(addr->ifa_name + 2) + 1, tempptr);
@@ -999,7 +1218,7 @@ _papplSystemWebSecurity(
     {
       status = "Invalid form data.";
     }
-    else if (!papplClientValidateForm(client, num_form, form))
+    else if (!papplClientIsValidForm(client, num_form, form))
     {
       status = "Invalid form submission.";
     }
@@ -1055,9 +1274,9 @@ _papplSystemWebSecurity(
     {
       const char	 *group;	// Current group
       char		buffer[8192];	// Buffer for strings
-      struct group	grpbuf,		// Group buffer
-			*grp = NULL;	// Admin group
+      struct group	grpbuf;		// Group buffer
 
+      grp = NULL;
 
       if ((group = cupsGetOption("admin_group", num_form, form)) != NULL)
       {
@@ -1194,17 +1413,17 @@ void
 _papplSystemWebSettings(
     pappl_client_t *client)		// I - Client
 {
-  if (client->system->options & (PAPPL_SOPTIONS_NETWORK | PAPPL_SOPTIONS_SECURITY | PAPPL_SOPTIONS_TLS))
+  if (client->system->options & (PAPPL_SOPTIONS_WEB_NETWORK | PAPPL_SOPTIONS_WEB_SECURITY | PAPPL_SOPTIONS_WEB_TLS))
   {
     papplClientHTMLPuts(client,
                         "          <h2 class=\"title\">Other Settings</h2>\n"
                         "          <div class=\"btn\">");
-    if (client->system->options & PAPPL_SOPTIONS_NETWORK)
+    if (client->system->options & PAPPL_SOPTIONS_WEB_NETWORK)
       papplClientHTMLPrintf(client, "<a class=\"btn\" href=\"https://%s:%d/network\">Network</a> ", client->host_field, client->host_port);
-    if (client->system->options & PAPPL_SOPTIONS_SECURITY)
+    if (client->system->options & PAPPL_SOPTIONS_WEB_SECURITY)
       papplClientHTMLPrintf(client, "<a class=\"btn\" href=\"https://%s:%d/security\">Security</a> ", client->host_field, client->host_port);
 #ifdef HAVE_GNUTLS
-    if (client->system->options & PAPPL_SOPTIONS_TLS)
+    if (client->system->options & PAPPL_SOPTIONS_WEB_TLS)
       papplClientHTMLPrintf(client,
                             "<a class=\"btn\" href=\"https://%s:%d/tls-install-crt\">Install TLS Certificate</a> "
                             "<a class=\"btn\" href=\"https://%s:%d/tls-new-crt\">Create New TLS Certificate</a> "
@@ -1213,7 +1432,7 @@ _papplSystemWebSettings(
     papplClientHTMLPuts(client, "</div>\n");
   }
 
-  if ((client->system->options & PAPPL_SOPTIONS_LOG) && client->system->logfile && strcmp(client->system->logfile, "-") && strcmp(client->system->logfile, "syslog"))
+  if ((client->system->options & PAPPL_SOPTIONS_WEB_LOG) && client->system->logfile && strcmp(client->system->logfile, "-") && strcmp(client->system->logfile, "syslog"))
     papplClientHTMLPrintf(client,
                         "          <h2 class=\"title\">Logging</h2>\n"
                         "          <div class=\"btn\"><a class=\"btn\" href=\"https://%s:%d/logs\">View Logs</a></div>\n", client->host_field, client->host_port);
@@ -1245,7 +1464,7 @@ _papplSystemWebTLSInstall(
     {
       status = "Invalid form data.";
     }
-    else if (!papplClientValidateForm(client, num_form, form))
+    else if (!papplClientIsValidForm(client, num_form, form))
     {
       status = "Invalid form submission.";
     }
@@ -1342,7 +1561,7 @@ _papplSystemWebTLSNew(
     {
       status = "Invalid form data.";
     }
-    else if (!papplClientValidateForm(client, num_form, form))
+    else if (!papplClientIsValidForm(client, num_form, form))
     {
       status = "Invalid form submission.";
     }
@@ -1480,110 +1699,16 @@ _papplSystemWebTLSNew(
 
 static bool				// O - `true` to stop, `false` to continue
 system_device_cb(
+    const char *device_info,		// I - Device description
     const char *device_uri,		// I - Device URI
     const char *device_id,		// I - IEEE-1284 device ID
-    void       *data)			// I - Callback data (client)
+    void       *data)			// I - Callback data (client + device URI)
 {
-  pappl_client_t *client = (pappl_client_t *)data;
-					// Client
-  char		scheme[32],		// URI scheme
-		userpass[32],		// Username/password
-		make[64],		// Make from URI or device ID
-		model[256],		// Model from URI or device ID
-		serial_num[64],		// Serial Number from device ID
-		*dnnsd_name,		// Pointer to dnnsd name
-		*serial;		// Pointer to serial number
-  int		port;			// Port number
+  _pappl_system_dev_t *devdata = (_pappl_system_dev_t *)data;
+					// Callback data
 
 
-  if (device_id)
-  {
-    // List the device using the IEEE-1284 device ID
-    char  *keyptr,      // Pointer into key
-          key[256],     // Key Variable
-          *valptr,      // Pointer into value
-          value[256];   // Value Variable
-
-    while (*device_id)
-    {
-      while (isspace(*device_id))
-        device_id ++;
-
-      if (!(*device_id))
-        break;
-
-      for (keyptr = key; *device_id && *device_id != ':'; device_id ++)
-      {
-        if (keyptr < (key + sizeof(key) - 1))
-          *keyptr ++ = *device_id;
-      }
-
-      if (!(*device_id))
-        break;
-
-      *keyptr = '\0';
-      device_id ++;
-
-      while (isspace(*device_id))
-        device_id ++;
-
-      if (!(*device_id))
-        break;
-
-      for (valptr = value; *device_id && *device_id != ';'; device_id ++)
-      {
-        if (valptr < (value + sizeof(value) - 1))
-          *valptr ++ = *device_id;
-      }
-
-      if (!(*device_id))
-        break;
-
-      *valptr = '\0';
-      device_id ++;
-
-      if (!strcmp(key, "MANUFACTURER") || !strcmp(key, "MFG"))
-        strlcpy(make, value, sizeof(make));
-      else if (!strcmp(key, "MODEL") || !strcmp(key, "MDL"))
-        strlcpy(model, value, sizeof(model));
-      else if (strcmp(key, "SERIALNUMBER") || !strcmp(key, "SN"))
-        strlcpy(serial_num, value, sizeof(serial_num));
-    }
-
-    papplClientHTMLPrintf(client, "<option value=\"%s|%s\">USB %s %s (%s)</option>", device_uri, device_id, make, model, serial_num);
-  }
-  else
-  {
-    // List device using the device URI
-    if (httpSeparateURI(HTTP_URI_CODING_ALL, device_uri, scheme, sizeof(scheme), userpass, sizeof(userpass), make, sizeof(make), &port, model, sizeof(model)) >= HTTP_URI_STATUS_OK)
-    {
-      if ((serial = strstr(model, "?serial=")) != NULL)
-      {
-        *serial = '\0';
-        serial += 8;
-      }
-
-      if (!strcmp(scheme, "usb"))
-      {
-        if (serial)
-          papplClientHTMLPrintf(client, "<option value=\"%s|%s\">USB %s %s (%s)</option>", device_uri, device_id, make, model, serial);
-        else
-          papplClientHTMLPrintf(client, "<option value=\"%s|%s\">USB %s %s</option>", device_uri, device_id, make, model);
-      }
-      else if (!strcmp(scheme, "socket") || !(strcmp(scheme, "dnssd")))
-      {
-        if ((dnnsd_name = strstr(make, "._")) != NULL)
-        {
-          *dnnsd_name = '\0';
-          papplClientHTMLPrintf(client, "<option value=\"%s|%s\">Network %s</option>", device_uri, device_id, make);
-        }
-        else
-        {
-          papplClientHTMLPrintf(client, "<option value=\"%s|%s\">Network %s</option>", device_uri, device_id, make);
-        }
-      }
-    }
-  }
+  papplClientHTMLPrintf(devdata->client, "<option value=\"%s|%s\"%s>%s</option>", device_uri, device_id, !strcmp(devdata->device_uri, device_uri) ? " selected" : "", device_info);
 
   return (false);
 }
@@ -1610,7 +1735,7 @@ static void
 system_header(pappl_client_t *client,	// I - Client
               const char     *title)	// I - Title
 {
-  if (!papplClientRespondHTTP(client, HTTP_STATUS_OK, NULL, "text/html", 0, 0))
+  if (!papplClientRespond(client, HTTP_STATUS_OK, NULL, "text/html", 0, 0))
     return;
 
   papplClientHTMLHeader(client, title, 0);
@@ -1693,7 +1818,7 @@ tls_install_certificate(
     }
   }
 
-  snprintf(ssldir, sizeof(ssldir), "%s/ssl", ssldir);
+  snprintf(ssldir, sizeof(ssldir), "%s/ssl", basedir);
   if (access(ssldir, X_OK))
   {
     // Make "~/.cups/ssl" or "/etc/cups/ssl" directory...

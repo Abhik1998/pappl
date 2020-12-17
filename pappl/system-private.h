@@ -102,20 +102,24 @@ struct _pappl_system_s			// System data
   int			default_printer_id,	// Default printer-id
 			next_printer_id;	// Next printer-id
   char			password_hash[100];	// Access password hash
-  int			num_pdrivers;		// Number of driver names
-  const char * const	*pdrivers;		// Print driver names
-  const char * const	*pdrivers_desc;		// Print driver description
-  pappl_pdriver_cb_t	pdriver_cb;		// Print driver callback
-  void			*pdriver_cbdata;	// Print driver callback data
+  int			num_drivers;		// Number of printer drivers
+  pappl_pr_driver_t	*drivers;		// Printer drivers
+  pappl_pr_driver_cb_t	driver_cb;		// Printer driver initialization callback
+  void			*driver_cbdata;		// Printer driver callback data
+  pappl_pr_autoadd_cb_t autoadd_cb;		// Printer driver auto-add callback
+  ipp_t			*attrs;			// Static attributes for system
   pappl_mime_cb_t	mime_cb;		// MIME typing callback
   void			*mime_cbdata;		// MIME typing callback data
   pappl_ipp_op_cb_t	op_cb;			// IPP operation callback
   void			*op_cbdata;		// IPP operation callback data
   pappl_save_cb_t	save_cb;		// Save callback
   void			*save_cbdata;		// Save callback data
-  _pappl_srv_t		dns_sd_ref;		// DNS-SD IPPS service
 #  ifdef HAVE_DNSSD
+  _pappl_srv_t		dns_sd_ipps_ref,	// DNS-SD IPPS service
+			dns_sd_http_ref;	// DNS-SD HTTP service
   DNSRecordRef		dns_sd_loc_ref;		// DNS-SD LOC record
+#  else
+  _pappl_srv_t		dns_sd_ref;		// DNS-SD services
 #  endif // HAVE_DNSSD
   unsigned char		dns_sd_loc[16];		// DNS-SD LOC record data
   bool			dns_sd_any_collision;	// Was there a name collision for any printer?
@@ -129,6 +133,7 @@ struct _pappl_system_s			// System data
 // Functions...
 //
 
+extern void		_papplSystemAddPrinter(pappl_system_t *system, pappl_printer_t *printer, int printer_id) _PAPPL_PRIVATE;
 extern void		_papplSystemAddPrinterIcons(pappl_system_t *system, pappl_printer_t *printer) _PAPPL_PRIVATE;
 extern void		_papplSystemCleanJobs(pappl_system_t *system) _PAPPL_PRIVATE;
 extern void		_papplSystemConfigChanged(pappl_system_t *system) _PAPPL_PRIVATE;
@@ -136,10 +141,12 @@ extern void		_papplSystemExportVersions(pappl_system_t *system, ipp_t *ipp, ipp_
 extern _pappl_mime_filter_t *_papplSystemFindMIMEFilter(pappl_system_t *system, const char *srctype, const char *dsttype) _PAPPL_PRIVATE;
 extern _pappl_resource_t *_papplSystemFindResource(pappl_system_t *system, const char *path) _PAPPL_PRIVATE;
 extern char		*_papplSystemMakeUUID(pappl_system_t *system, const char *printer_name, int job_id, char *buffer, size_t bufsize) _PAPPL_PRIVATE;
+extern void		_papplSystemProcessIPP(pappl_client_t *client) _PAPPL_PRIVATE;
 extern bool		_papplSystemRegisterDNSSDNoLock(pappl_system_t *system) _PAPPL_PRIVATE;
 extern void		_papplSystemUnregisterDNSSDNoLock(pappl_system_t *system) _PAPPL_PRIVATE;
 
 extern void		_papplSystemWebAddPrinter(pappl_client_t *client, pappl_system_t *system) _PAPPL_PRIVATE;
+extern void		_papplSystemWebAddScanner(pappl_client_t *client, pappl_system_t *system) _PAPPL_PRIVATE;
 extern void		_papplSystemWebConfig(pappl_client_t *client, pappl_system_t *system) _PAPPL_PRIVATE;
 extern void		_papplSystemWebConfigFinalize(pappl_system_t *system, int num_form, cups_option_t *form) _PAPPL_PRIVATE;
 extern void		_papplSystemWebHome(pappl_client_t *client, pappl_system_t *system) _PAPPL_PRIVATE;
