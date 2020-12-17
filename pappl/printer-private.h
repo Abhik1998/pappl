@@ -140,17 +140,6 @@ extern void		_papplPrinterWebJobs(pappl_client_t *client, pappl_printer_t *print
 extern void		_papplPrinterWebMedia(pappl_client_t *client, pappl_printer_t *printer) _PAPPL_PRIVATE;
 extern void		_papplPrinterWebSupplies(pappl_client_t *client, pappl_printer_t *printer) _PAPPL_PRIVATE;
 
-extern void		_papplScannerWebCancelAllJobs(pappl_client_t *client, pappl_scanner_t *Scanner) _PAPPL_PRIVATE;
-extern void		_papplScannerWebCancelJob(pappl_client_t *client, pappl_scanner_t *Scanner) _PAPPL_PRIVATE;
-extern void		_papplScannerWebConfig(pappl_client_t *client, pappl_scanner_t *Scanner) _PAPPL_PRIVATE;
-extern void		_papplScannerWebConfigFinalize(pappl_scanner_t *printer, int num_form, cups_option_t *form) _PAPPL_PRIVATE;
-extern void		_papplScannerWebDefaults(pappl_client_t *client, pappl_scanner_t *Scanner) _PAPPL_PRIVATE;
-extern void		_papplScannerWebDelete(pappl_client_t *client, pappl_scanner_t *Scanner) _PAPPL_PRIVATE;
-extern void		_papplScannerWebHome(pappl_client_t *client, pappl_scanner_t *Scanner) _PAPPL_PRIVATE;
-extern void		_papplScannerWebIteratorCallback(pappl_scanner_t *Scanner, pappl_client_t *client) _PAPPL_PRIVATE;
-extern void		_papplScannerWebJobs(pappl_client_t *client, pappl_scanner_t *Scanner) _PAPPL_PRIVATE;
-extern void		_papplScannerWebMedia(pappl_client_t *client, pappl_scanner_t *Scanner) _PAPPL_PRIVATE;
-
 extern const char	*_papplColorModeString(pappl_color_mode_t value) _PAPPL_PRIVATE;
 extern pappl_color_mode_t _papplColorModeValue(const char *value) _PAPPL_PRIVATE;
 
