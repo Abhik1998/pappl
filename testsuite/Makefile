@@ -43,21 +43,25 @@ install:
 
 
 # Test everything
-test:
+test:		testpappl
+	$(RM) testpappl.log
+	$(RM) -r testpappl.output
+	$(MKDIR) testpappl.output
+	./testpappl -c -l testpappl.log -L debug -o testpappl.output -t all
 
 
 # Test suite program
 testpappl:	testpappl.o pwg-driver.o ../pappl/libpappl.a
 	echo Linking $@...
 	$(CC) $(LDFLAGS) -o $@ testpappl.o pwg-driver.o ../pappl/libpappl.a $(LIBS)
-	$(CODE_SIGN) -s "$(CODESIGN_IDENTITY)" -o runtime --timestamp -i org.msweet.pappl.testpappl $@
+	$(CODE_SIGN) $(CSFLAGS) -i org.msweet.pappl.$@ $@
 
 
 # Mainloop test program
 testmainloop:	testmainloop.o pwg-driver.o ../pappl/libpappl.a
 	echo Linking $@...
 	$(CC) $(LDFLAGS) -o $@ testmainloop.o pwg-driver.o ../pappl/libpappl.a $(LIBS)
-	$(CODE_SIGN) -s "$(CODESIGN_IDENTITY)" -o runtime --timestamp -i org.msweet.pappl.testmainloop $@
+	$(CODE_SIGN) $(CSFLAGS) -i org.msweet.pappl.$@ $@
 
 
 # Static resource header...

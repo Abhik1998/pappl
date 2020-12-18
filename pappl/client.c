@@ -44,11 +44,18 @@ _papplClientCleanTempFiles(
 
 
 //
-// 'papplClientCreate()' - Accept a new network connection and create a client object.
+// '_papplClientCreate()' - Accept a new network connection and create a client
+//                          object.
+//
+// The new network connection is accepted from the specified listen socket.
+// The client object is managed by the system and is automatically freed when
+// the connection is closed.
+//
+// > Note: This function is normally only called from @link papplSystemRun@.
 //
 
 pappl_client_t *			// O - Client
-papplClientCreate(
+_papplClientCreate(
     pappl_system_t *system,		// I - Printer
     int            sock)		// I - Listen socket
 {
@@ -128,11 +135,14 @@ _papplClientCreateTempFile(
 
 
 //
-// 'papplClientDelete()' - Close the socket and free all memory used by a client object.
+// '_papplClientDelete()' - Close the client connection and free all memory used
+//                          by a client object.
+//
+// > Note: This function is normally only called by
 //
 
 void
-papplClientDelete(
+_papplClientDelete(
     pappl_client_t *client)		// I - Client
 {
   papplLogClient(client, PAPPL_LOGLEVEL_INFO, "Closing connection from '%s'.", client->hostname);
@@ -163,6 +173,7 @@ _papplClientProcessHTTP(
   char			uri[1024];	// URI
   http_state_t		http_state;	// HTTP state
   http_status_t		http_status;	// HTTP status
+  http_version_t	http_version;	// HTTP version
   ipp_state_t		ipp_state;	// State of IPP transfer
   char			scheme[32],	// Method/scheme
 			userpass[128],	// Username:password
@@ -215,13 +226,13 @@ _papplClientProcessHTTP(
   else if (http_state == HTTP_STATE_UNKNOWN_METHOD)
   {
     papplLogClient(client, PAPPL_LOGLEVEL_ERROR, "Bad/unknown operation.");
-    papplClientRespondHTTP(client, HTTP_STATUS_BAD_REQUEST, NULL, NULL, 0, 0);
+    papplClientRespond(client, HTTP_STATUS_BAD_REQUEST, NULL, NULL, 0, 0);
     return (false);
   }
   else if (http_state == HTTP_STATE_UNKNOWN_VERSION)
   {
     papplLogClient(client, PAPPL_LOGLEVEL_ERROR, "Bad HTTP version.");
-    papplClientRespondHTTP(client, HTTP_STATUS_BAD_REQUEST, NULL, NULL, 0, 0);
+    papplClientRespond(client, HTTP_STATUS_BAD_REQUEST, NULL, NULL, 0, 0);
     return (false);
   }
 
@@ -229,7 +240,7 @@ _papplClientProcessHTTP(
   if (httpSeparateURI(HTTP_URI_CODING_MOST, uri, scheme, sizeof(scheme), userpass, sizeof(userpass), hostname, sizeof(hostname), &port, client->uri, sizeof(client->uri)) < HTTP_URI_STATUS_OK && (http_state != HTTP_STATE_OPTIONS || strcmp(uri, "*")))
   {
     papplLogClient(client, PAPPL_LOGLEVEL_ERROR, "Bad URI '%s'.", uri);
-    papplClientRespondHTTP(client, HTTP_STATUS_BAD_REQUEST, NULL, NULL, 0, 0);
+    papplClientRespond(client, HTTP_STATUS_BAD_REQUEST, NULL, NULL, 0, 0);
     return (false);
   }
 
@@ -245,18 +256,20 @@ _papplClientProcessHTTP(
 
   if (http_status != HTTP_STATUS_OK)
   {
-    papplClientRespondHTTP(client, HTTP_STATUS_BAD_REQUEST, NULL, NULL, 0, 0);
+    papplClientRespond(client, HTTP_STATUS_BAD_REQUEST, NULL, NULL, 0, 0);
     return (false);
   }
 
-  papplLogClient(client, PAPPL_LOGLEVEL_INFO, "%s %s://%s%s", http_states[http_state], httpIsEncrypted(client->http) ? "https" : "http", httpGetField(client->http, HTTP_FIELD_HOST), uri);
+  http_version = httpGetVersion(client->http);
+
+  papplLogClient(client, PAPPL_LOGLEVEL_INFO, "%s %s://%s%s HTTP/%d.%d", http_states[http_state], httpIsEncrypted(client->http) ? "https" : "http", httpGetField(client->http, HTTP_FIELD_HOST), uri, http_version / 100, http_version % 100);
 
   // Validate the host header...
   if (!httpGetField(client->http, HTTP_FIELD_HOST)[0] &&
       httpGetVersion(client->http) >= HTTP_VERSION_1_1)
   {
     // HTTP/1.1 and higher require the "Host:" field...
-    papplClientRespondHTTP(client, HTTP_STATUS_BAD_REQUEST, NULL, NULL, 0, 0);
+    papplClientRespond(client, HTTP_STATUS_BAD_REQUEST, NULL, NULL, 0, 0);
     return (false);
   }
 
@@ -278,7 +291,7 @@ _papplClientProcessHTTP(
   if (!isdigit(client->host_field[0] & 255) && client->host_field[0] != '[' && strcmp(client->host_field, client->system->hostname) && strcmp(client->host_field, "localhost") && (!ptr || (strcmp(ptr, ".local") && strcmp(ptr, ".local."))))
   {
     papplLogClient(client, PAPPL_LOGLEVEL_ERROR, "Bad Host: header '%s'.", client->host_field);
-    papplClientRespondHTTP(client, HTTP_STATUS_BAD_REQUEST, NULL, NULL, 0, 0);
+    papplClientRespond(client, HTTP_STATUS_BAD_REQUEST, NULL, NULL, 0, 0);
     return (false);
   }
 
@@ -287,7 +300,7 @@ _papplClientProcessHTTP(
   {
     if (strstr(httpGetField(client->http, HTTP_FIELD_UPGRADE), "TLS/") != NULL && !httpIsEncrypted(client->http))
     {
-      if (!papplClientRespondHTTP(client, HTTP_STATUS_SWITCHING_PROTOCOLS, NULL, NULL, 0, 0))
+      if (!papplClientRespond(client, HTTP_STATUS_SWITCHING_PROTOCOLS, NULL, NULL, 0, 0))
         return (false);
 
       papplLogClient(client, PAPPL_LOGLEVEL_INFO, "Upgrading to encrypted connection.");
@@ -300,7 +313,7 @@ _papplClientProcessHTTP(
 
       papplLogClient(client, PAPPL_LOGLEVEL_INFO, "Connection now encrypted.");
     }
-    else if (!papplClientRespondHTTP(client, HTTP_STATUS_NOT_IMPLEMENTED, NULL, NULL, 0, 0))
+    else if (!papplClientRespond(client, HTTP_STATUS_NOT_IMPLEMENTED, NULL, NULL, 0, 0))
       return (false);
   }
 
@@ -310,13 +323,13 @@ _papplClientProcessHTTP(
     if (httpGetExpect(client->http) == HTTP_STATUS_CONTINUE)
     {
       // Send 100-continue header...
-      if (!papplClientRespondHTTP(client, HTTP_STATUS_CONTINUE, NULL, NULL, 0, 0))
+      if (!papplClientRespond(client, HTTP_STATUS_CONTINUE, NULL, NULL, 0, 0))
 	return (false);
     }
     else
     {
       // Send 417-expectation-failed header...
-      if (!papplClientRespondHTTP(client, HTTP_STATUS_EXPECTATION_FAILED, NULL, NULL, 0, 0))
+      if (!papplClientRespond(client, HTTP_STATUS_EXPECTATION_FAILED, NULL, NULL, 0, 0))
 	return (false);
     }
   }
@@ -326,20 +339,20 @@ _papplClientProcessHTTP(
   {
     case HTTP_STATE_OPTIONS :
         // Do OPTIONS command...
-	return (papplClientRespondHTTP(client, HTTP_STATUS_OK, NULL, NULL, 0, 0));
+	return (papplClientRespond(client, HTTP_STATUS_OK, NULL, NULL, 0, 0));
 
     case HTTP_STATE_HEAD :
         // See if we have a matching resource to serve...
         if ((resource = _papplSystemFindResource(client->system, client->uri)) != NULL)
         {
           if (eval_if_modified(client, resource))
-	    return (papplClientRespondHTTP(client, HTTP_STATUS_OK, NULL, resource->format, resource->last_modified, 0));
+	    return (papplClientRespond(client, HTTP_STATUS_OK, NULL, resource->format, resource->last_modified, 0));
           else
-            return (papplClientRespondHTTP(client, HTTP_STATUS_NOT_MODIFIED, NULL, NULL, resource->last_modified, 0));
+            return (papplClientRespond(client, HTTP_STATUS_NOT_MODIFIED, NULL, NULL, resource->last_modified, 0));
 	}
 
         // If we get here the resource wasn't found...
-	return (papplClientRespondHTTP(client, HTTP_STATUS_NOT_FOUND, NULL, NULL, 0, 0));
+	return (papplClientRespond(client, HTTP_STATUS_NOT_FOUND, NULL, NULL, 0, 0));
 
     case HTTP_STATE_GET :
         // See if we have a matching resource to serve...
@@ -347,7 +360,7 @@ _papplClientProcessHTTP(
         {
           if (!eval_if_modified(client, resource))
           {
-            return (papplClientRespondHTTP(client, HTTP_STATUS_NOT_MODIFIED, NULL, NULL, resource->last_modified, 0));
+            return (papplClientRespond(client, HTTP_STATUS_NOT_MODIFIED, NULL, NULL, resource->last_modified, 0));
           }
           else if (resource->cb)
           {
@@ -363,7 +376,7 @@ _papplClientProcessHTTP(
 
             if ((fd = open(resource->filename, O_RDONLY)) >= 0)
 	    {
-	      if (!papplClientRespondHTTP(client, HTTP_STATUS_OK, NULL, resource->format, resource->last_modified, 0))
+	      if (!papplClientRespond(client, HTTP_STATUS_OK, NULL, resource->format, resource->last_modified, 0))
 		return (false);
 
               while ((bytes = read(fd, buffer, sizeof(buffer))) > 0)
@@ -379,7 +392,7 @@ _papplClientProcessHTTP(
 	  else
 	  {
 	    // Send a static resource file...
-	    if (!papplClientRespondHTTP(client, HTTP_STATUS_OK, NULL, resource->format, resource->last_modified, resource->length))
+	    if (!papplClientRespond(client, HTTP_STATUS_OK, NULL, resource->format, resource->last_modified, resource->length))
 	      return (false);
 
 	    httpWrite2(client->http, (const char *)resource->data, resource->length);
@@ -389,7 +402,7 @@ _papplClientProcessHTTP(
 	}
 
         // If we get here then the resource wasn't found...
-	return (papplClientRespondHTTP(client, HTTP_STATUS_NOT_FOUND, NULL, NULL, 0, 0));
+	return (papplClientRespond(client, HTTP_STATUS_NOT_FOUND, NULL, NULL, 0, 0));
 
     case HTTP_STATE_POST :
         if (!strcmp(httpGetField(client->http, HTTP_FIELD_CONTENT_TYPE), "application/ipp"))
@@ -402,7 +415,7 @@ _papplClientProcessHTTP(
 	    if (ipp_state == IPP_STATE_ERROR)
 	    {
 	      papplLogClient(client, PAPPL_LOGLEVEL_ERROR, "IPP read error (%s).", cupsLastErrorString());
-	      papplClientRespondHTTP(client, HTTP_STATUS_BAD_REQUEST, NULL, NULL, 0, 0);
+	      papplClientRespond(client, HTTP_STATUS_BAD_REQUEST, NULL, NULL, 0, 0);
 	      return (false);
 	    }
 	  }
@@ -421,13 +434,13 @@ _papplClientProcessHTTP(
           else
           {
             // Otherwise you can't POST to a resource...
-	    return (papplClientRespondHTTP(client, HTTP_STATUS_BAD_REQUEST, NULL, NULL, 0, 0));
+	    return (papplClientRespond(client, HTTP_STATUS_BAD_REQUEST, NULL, NULL, 0, 0));
           }
         }
         else
         {
 	  // Not an IPP request or form, return an error...
-	  return (papplClientRespondHTTP(client, HTTP_STATUS_BAD_REQUEST, NULL, NULL, 0, 0));
+	  return (papplClientRespond(client, HTTP_STATUS_BAD_REQUEST, NULL, NULL, 0, 0));
 	}
 
     default :
@@ -439,17 +452,33 @@ _papplClientProcessHTTP(
 
 
 //
-// 'papplClientRespondHTTP()' - Send a HTTP response.
+// 'papplClientRespond()' - Send a regular HTTP response.
+//
+// This function sends all of the required HTTP fields and includes standard
+// messages for errors.  The following values for "code" are explicitly
+// supported:
+//
+// - `HTTP_STATUS_OK`: The request is successful.
+// - `HTTP_STATUS_BAD_REQUEST`: The client submitted a bad request.
+// - `HTTP_STATUS_CONTINUE`: An authentication challenge is not needed.
+// - `HTTP_STATUS_FORBIDDEN`: Authenticated but not allowed.
+// - `HTTP_STATUS_METHOD_NOT_ALLOWED`: The HTTP method is not supported for the
+//   given URI.
+// - `HTTP_STATUS_UNAUTHORIZED`: Not authenticated.
+// - `HTTP_STATUS_UPGRADE_REQUIRED`: Redirects the client to a secure page.
+//
+// Use the @link papplClientRespondRedirect@ when you need to redirect the
+// client to another page.
 //
 
 bool					// O - `true` on success, `false` on failure
-papplClientRespondHTTP(
+papplClientRespond(
     pappl_client_t *client,		// I - Client
     http_status_t  code,		// I - HTTP status of response
     const char     *content_encoding,	// I - Content-Encoding of response
     const char     *type,		// I - MIME media type of response
     time_t         last_modified,	// I - Last-Modified date/time or `0` for none
-    size_t         length)		// I - Length of response
+    size_t         length)		// I - Length of response or `0` for variable-length
 {
   char	message[1024];			// Text message
 
@@ -486,13 +515,17 @@ papplClientRespondHTTP(
     httpSetField(client->http, HTTP_FIELD_ALLOW, "GET, HEAD, OPTIONS, POST");
 
   if (code == HTTP_STATUS_UNAUTHORIZED)
-    httpSetField(client->http, HTTP_FIELD_WWW_AUTHENTICATE, "Basic realm=\"LPrint\"");
+  {
+    char	value[HTTP_MAX_VALUE];	// WWW-Authenticate value
+
+    snprintf(value, sizeof(value), "Basic realm=\"%s\"", client->system->name);
+    httpSetField(client->http, HTTP_FIELD_WWW_AUTHENTICATE, value);
+  }
 
   if (type)
   {
     if (!strcmp(type, "text/html"))
-      httpSetField(client->http, HTTP_FIELD_CONTENT_TYPE,
-                   "text/html; charset=utf-8");
+      httpSetField(client->http, HTTP_FIELD_CONTENT_TYPE, "text/html; charset=utf-8");
     else
       httpSetField(client->http, HTTP_FIELD_CONTENT_TYPE, type);
 
@@ -528,7 +561,7 @@ papplClientRespondHTTP(
   else if (client->response)
   {
     // Send an IPP response...
-    papplLogAttributes(client, ippOpString(client->operation_id), client->response, true);
+    _papplLogAttributes(client, ippOpString(client->operation_id), client->response, true);
 
     ippSetState(client->response, IPP_STATE_IDLE);
 
@@ -541,7 +574,10 @@ papplClientRespondHTTP(
 
 
 //
-// 'papplClientRespondRedirect()' - Respond with a redirect to another page...
+// 'papplClientRespondRedirect()' - Respond with a redirect to another page.
+//
+// This function sends a HTTP response that redirects the client to another
+// page or URL.  The most common "code" value to return is `HTTP_STATUS_FOUND`.
 //
 
 bool					// O - `true` on success, `false` otherwise
@@ -624,7 +660,7 @@ _papplClientRun(
   }
 
   // Close the conection to the client and return...
-  papplClientDelete(client);
+  _papplClientDelete(client);
 
   return (NULL);
 }
@@ -684,5 +720,5 @@ eval_if_modified(
   }
 
   // Return the evaluation based on the last modified date, time, and size...
-  return ((size != 0 && size != r->length) || (date != 0 && date < r->last_modified) || (size == 0 && date == 0));
+  return ((size != 0 && size != (off_t)r->length) || (date != 0 && date < r->last_modified) || (size == 0 && date == 0));
 }

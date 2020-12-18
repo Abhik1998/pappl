@@ -464,11 +464,13 @@ _papplSystemWebAddPrinter(
 
   papplClientHTMLPrintf(client,
 			"<option value=\"socket\">Network Printer</option></tr>\n"
-			"              <tr><th><label for=\"hostname\">Hostname/IP Address:</label></th><td><input type=\"text\" name=\"hostname\" id=\"hostname\" placeholder=\"IP address or hostname   \" pattern=\"%s\" value=\"%s\" disabled=\"disabled\"></td></tr>\n"
-			"              <tr><th><label for=\"driver_name\">Driver Name:</label></th><td><select name=\"driver_name\"><option value=\"\">Select Driver</option>", hostname_pattern, hostname);
+			"              <tr><th><label for=\"hostname\">Hostname/IP Address:</label></th><td><input type=\"text\" name=\"hostname\" id=\"hostname\" placeholder=\"IP address or hostname\" pattern=\"%s\" value=\"%s\" disabled=\"disabled\"></td></tr>\n"
+			"              <tr><th><label for=\"driver_name\">Driver Name:</label></th><td><select name=\"driver_name\">", hostname_pattern, hostname);
 
   if (system->autoadd_cb)
-    papplClientHTMLPrintf(client, "<option value=\"auto\"%s>Auto-Detect Driver</option>", !strcmp(driver_name, "auto") ? " selected" : "");
+    papplClientHTMLPuts(client, "<option value=\"auto\">Auto-Detect Driver</option>");
+  else
+    papplClientHTMLPuts(client, "<option value=\"\">Select Driver</option>");
 
   for (i = 0; i < system->num_drivers; i ++)
     papplClientHTMLPrintf(client, "<option value=\"%s\"%s>%s</option>", system->drivers[i].name, !strcmp(system->drivers[i].name, driver_name) ? " selected" : "", system->drivers[i].description);
@@ -814,18 +816,18 @@ _papplSystemWebHome(
 			"        <div class=\"col-6\">\n"
 			"          <h1 class=\"title\">Configuration <a class=\"btn\" href=\"https://%s:%d/config\">Change</a></h1>\n", client->host_field, client->host_port);
 
+  _papplClientHTMLPutLinks(client, system->links, PAPPL_LOPTIONS_CONFIGURATION);
+
   _papplClientHTMLInfo(client, false, system->dns_sd_name, system->location, system->geo_location, system->organization, system->org_unit, &system->contact);
 
   _papplSystemWebSettings(client);
 
-  papplClientHTMLPrintf(client,
+  papplClientHTMLPuts(client,
 		      "        </div>\n"
                       "        <div class=\"col-6\">\n"
-                      "          <h1 class=\"title\">Printers and Scanners</h1>\n"
-                      "          <a class=\"btn\" href=\"https://%s:%d/addprinter\">Add Printer</a>", client->host_field, client->host_port);
-                    
-  papplClientHTMLPrintf(client,
-                      "          <a class=\"btn\" href=\"https://%s:%d/addscanner\">Add Scanner</a>", client->host_field, client->host_port);
+                      "          <h1 class=\"title\">Printers</h1>\n");
+
+  _papplClientHTMLPutLinks(client, system->links, PAPPL_LOPTIONS_PRINTER);
 
   papplSystemIteratePrinters(system, (pappl_printer_cb_t)_papplPrinterWebIteratorCallback, client);
 
@@ -1187,7 +1189,9 @@ _papplSystemWebNetwork(
   papplClientHTMLPuts(client,
 		      "            </tbody>\n"
 		      "          </table>\n"
-		      "      </form>\n");
+		      "        </form>\n");
+
+  _papplClientHTMLPutLinks(client, client->system->links, PAPPL_LOPTIONS_NETWORK);
 
   system_footer(client);
 }
@@ -1397,6 +1401,8 @@ _papplSystemWebSecurity(
 			"        </form>\n");
   }
 
+  _papplClientHTMLPutLinks(client, client->system->links, PAPPL_LOPTIONS_SECURITY);
+
   // Finish up...
   papplClientHTMLPuts(client,
                       "      </div>\n");
@@ -1413,29 +1419,39 @@ void
 _papplSystemWebSettings(
     pappl_client_t *client)		// I - Client
 {
-  if (client->system->options & (PAPPL_SOPTIONS_WEB_NETWORK | PAPPL_SOPTIONS_WEB_SECURITY | PAPPL_SOPTIONS_WEB_TLS))
+  int		i,			// Looping var
+		count;			// Number of links
+  _pappl_link_t	*l;			// Current link
+
+
+  for (i = 0, count = cupsArrayCount(client->system->links); i < count; i ++)
+  {
+    l = (_pappl_link_t *)cupsArrayIndex(client->system->links, i);
+
+    if (!l)
+      continue;
+
+    if (l->options & PAPPL_LOPTIONS_OTHER)
+      break;
+  }
+
+  if (i < count)
   {
     papplClientHTMLPuts(client,
                         "          <h2 class=\"title\">Other Settings</h2>\n"
                         "          <div class=\"btn\">");
-    if (client->system->options & PAPPL_SOPTIONS_WEB_NETWORK)
-      papplClientHTMLPrintf(client, "<a class=\"btn\" href=\"https://%s:%d/network\">Network</a> ", client->host_field, client->host_port);
-    if (client->system->options & PAPPL_SOPTIONS_WEB_SECURITY)
-      papplClientHTMLPrintf(client, "<a class=\"btn\" href=\"https://%s:%d/security\">Security</a> ", client->host_field, client->host_port);
-#ifdef HAVE_GNUTLS
-    if (client->system->options & PAPPL_SOPTIONS_WEB_TLS)
-      papplClientHTMLPrintf(client,
-                            "<a class=\"btn\" href=\"https://%s:%d/tls-install-crt\">Install TLS Certificate</a> "
-                            "<a class=\"btn\" href=\"https://%s:%d/tls-new-crt\">Create New TLS Certificate</a> "
-                            "<a class=\"btn\" href=\"https://%s:%d/tls-new-csr\">Create TLS Certificate Request</a> ", client->host_field, client->host_port, client->host_field, client->host_port, client->host_field, client->host_port);
-#endif // HAVE_GNUTLS
+    _papplClientHTMLPutLinks(client, client->system->links, PAPPL_LOPTIONS_OTHER);
     papplClientHTMLPuts(client, "</div>\n");
   }
 
   if ((client->system->options & PAPPL_SOPTIONS_WEB_LOG) && client->system->logfile && strcmp(client->system->logfile, "-") && strcmp(client->system->logfile, "syslog"))
-    papplClientHTMLPrintf(client,
+  {
+    papplClientHTMLPuts(client,
                         "          <h2 class=\"title\">Logging</h2>\n"
-                        "          <div class=\"btn\"><a class=\"btn\" href=\"https://%s:%d/logs\">View Logs</a></div>\n", client->host_field, client->host_port);
+                        "          <div class=\"btn\">");
+    _papplClientHTMLPutLinks(client, client->system->links, PAPPL_LOPTIONS_LOGGING);
+    papplClientHTMLPuts(client, "</div>\n");
+  }
 }
 
 
@@ -1527,8 +1543,11 @@ _papplSystemWebTLSInstall(
 		      "            </tbody>\n"
 		      "          </table>\n"
 		      "        </div>\n"
-		      "        </form>\n"
-                      "      </div>\n");
+		      "        </form>\n");
+
+  _papplClientHTMLPutLinks(client, client->system->links, PAPPL_LOPTIONS_TLS);
+
+  papplClientHTMLPuts(client, "      </div>\n");
 
   system_footer(client);
 }
@@ -1685,8 +1704,11 @@ _papplSystemWebTLSNew(
 		      "    }\n"
 		      "  }\n"
 		      "}\n"
-		      "        </script>\n"
-                      "      </div>\n");
+		      "        </script>\n");
+
+  _papplClientHTMLPutLinks(client, client->system->links, PAPPL_LOPTIONS_TLS);
+
+  papplClientHTMLPuts(client, "      </div>\n");
 
   system_footer(client);
 }

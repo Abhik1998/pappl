@@ -9,28 +9,29 @@ supports the `include` directive, and the following support libraries:
 - GNU TLS 2.8 or later (except on macOS) for TLS support
 - JPEGLIB 9 or later for JPEG image support
 - LIBPNG 1.6 or later for PNG image support
+- PAM for authentication support
 - ZLIB 1.1 or later for compression support
 
 
 Getting Prerequisites
 ---------------------
 
-CentOS 7/Fedora 22-/RHEL 7:
+CentOS 7/Fedora 22/RHEL 7:
 
     sudo yum groupinstall 'Development Tools'
     sudo yum install avahi-devel cups-devel gnutls-devel libjpeg-turbo-devel \
-        libpng-devel libusbx-devel zlib-devel
+        libpng-devel libusbx-devel pam-devel zlib-devel
 
 CentOS 8/Fedora 23+/RHEL 8:
 
     sudo dnf groupinstall 'Development Tools'
     sudo dnf install avahi-devel cups-devel gnutls-devel libjpeg-turbo-devel \
-        libpng-devel libusbx-devel zlib-devel
+        libpng-devel libusbx-devel pam-devel zlib-devel
 
 Raspbian/Ubuntu:
 
     sudo apt-get install build-essential libavahi-client-dev libcups2-dev \
-        libcupsimage2-dev libgnutls28-dev libjpeg-dev libpng-dev \
+        libcupsimage2-dev libgnutls28-dev libjpeg-dev libpam-dev libpng-dev \
         libusb-1.0-0-dev zlib1g-dev
 
 macOS (after installing Xcode from the AppStore):
@@ -40,7 +41,7 @@ macOS (after installing Xcode from the AppStore):
     brew install libpng
     brew install libusb
 
-(or then download, build, and install libjpeg, libpng, and libusb from source)
+or download, build, and install libjpeg, libpng, and libusb from source.
 
 
 Building PAPPL

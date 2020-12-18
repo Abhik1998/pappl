@@ -21,13 +21,15 @@
 
 static int	compare_active_jobs(pappl_job_t *a, pappl_job_t *b);
 static int	compare_all_jobs(pappl_job_t *a, pappl_job_t *b);
-static int	compare_completed_jobs(pappl_job_t *a, pappl_job_t *b);
-static int	compare_printers(pappl_printer_t *a, pappl_printer_t *b);
-static void	free_printer(pappl_printer_t *printer);
+static int	compare_completed_jobs(pappl_job_t * _papplPrinterInitPrintDriverDataa, pappl_job_t *b);
 
 
 //
 // 'papplPrinterCancelAllJobs()' - Cancel all jobs on the printer.
+//
+// This function cancels all jobs on the printer.  If any job is currently being
+// printed, it will be stopped at a convenient time (usually the end of a page)
+// so that the printer will be left in a known state.
 //
 
 void
@@ -69,13 +71,37 @@ papplPrinterCancelAllJobs(
 //
 // 'papplPrinterCreate()' - Create a new printer.
 //
+// This function creates a new printer (service) on the specified system.  The
+// "type" argument specifies the type of service to create and must currently
+// be the value `PAPPL_SERVICE_TYPE_PRINT`.
+//
+// The "printer_id" argument specifies a positive integer identifier that is
+// unique to the system.  If you specify a value of `0` a new identifier will
+// be assigned.
+//
+// The "driver_name" argument specifies a named driver for the printer, from
+// the list of drivers registered with the @link papplSystemSetPrinterDrivers@
+// function.
+//
+// The "device_id" and "device_uri" arguments specify the IEEE-1284 device ID
+// and device URI strings for the printer.
+//
+// On error, this function sets the `errno` variable to one of the following
+// values:
+//
+// - `EEXIST`: A printer with the specified name already exists.
+// - `EINVAL`: Bad values for the arguments were specified.
+// - `EIO`: The driver callback failed.
+// - `ENOENT`: No driver callback has been set.
+// - `ENOMEM`: Ran out of memory.
+//
 
-pappl_printer_t *			// O - Printer
+
+pappl_printer_t *			// O - Printer or `NULL` on error
 papplPrinterCreate(
     pappl_system_t       *system,	// I - System
-    pappl_service_type_t type,		// I - Service type
-    int                  printer_id,	// I - printer-id value or 0 for new
-    const char           *printer_name,	// I - Printer name
+    int                  printer_id,	// I - printer-id value or `0` for new
+    const char           *printer_name,	// I - Human-readable printer name
     const char           *driver_name,	// I - Driver name
     const char           *device_id,	// I - IEEE-1284 device ID
     const char           *device_uri)	// I - Device URI
@@ -89,7 +115,7 @@ papplPrinterCreate(
   struct statfs		spoolinfo;	// FS info for spool directory
   double		spoolsize;	// FS size
   char			path[256];	// Path to resource
-  pappl_pdriver_data_t	driver_data;	// Driver data
+  pappl_pr_driver_data_t driver_data;	// Driver data
   ipp_t			*driver_attrs;	// Driver attributes
   static const char * const ipp_versions[] =
   {					// ipp-versions-supported values
@@ -181,19 +207,16 @@ papplPrinterCreate(
 
 
   // Range check input...
-  if (!system || !printer_name || !driver_name || !device_uri || !strcmp(printer_name, "ipp") || type != PAPPL_SERVICE_TYPE_PRINT)
-    return (NULL);
-
-  if (!system->pdriver_cb)
+  if (!system || !printer_name || !driver_name || !device_uri || !strcmp(printer_name, "ipp"))
   {
-    papplLog(system, PAPPL_LOGLEVEL_ERROR, "No driver callback set, unable to add printer.");
+    errno = EINVAL;
     return (NULL);
   }
 
-  // Allocate memory for the printer...
-  if ((printer = calloc(1, sizeof(pappl_printer_t))) == NULL)
+  if (!system->driver_cb)
   {
-    papplLog(system, PAPPL_LOGLEVEL_ERROR, "Unable to allocate memory for printer: %s", strerror(errno));
+    papplLog(system, PAPPL_LOGLEVEL_ERROR, "No driver callback set, unable to add printer.");
+    errno = ENOENT;
     return (NULL);
   }
 
@@ -208,12 +231,24 @@ papplPrinterCreate(
       if ((*resptr & 255) <= ' ' || *resptr == 0x7f)
 	*resptr = '_';
   }
-  else{
-    if (type == PAPPL_SERVICE_TYPE_SCAN)
-      strlcpy(resource, "/ipp/scan", sizeof(resource));
-    else
-      strlcpy(resource, "/ipp/print", sizeof(resource));
+  else
+    strlcpy(resource, "/ipp/print", sizeof(resource));
+
+  // Make sure the printer doesn't already exist...
+  if (papplSystemFindPrinter(system, resource, 0, NULL))
+  {
+    papplLog(system, PAPPL_LOGLEVEL_ERROR, "Printer '%s' already exists.", printer_name);
+    errno = EEXIST;
+    return (NULL);
   }
+
+  // Allocate memory for the printer...
+  if ((printer = calloc(1, sizeof(pappl_printer_t))) == NULL)
+  {
+    papplLog(system, PAPPL_LOGLEVEL_ERROR, "Unable to allocate memory for printer: %s", strerror(errno));
+    return (NULL);
+  }
+
   papplLog(system, PAPPL_LOGLEVEL_INFO, "Printer '%s' at resource path '%s'.", printer_name, resource);
 
   _papplSystemMakeUUID(system, printer_name, 0, uuid, sizeof(uuid));
@@ -232,8 +267,8 @@ papplPrinterCreate(
   pthread_rwlock_init(&printer->rwlock, NULL);
 
   printer->system             = system;
-  printer->type               = type;
   printer->name               = strdup(printer_name);
+  printer->dns_sd_name        = strdup(printer_name);
   printer->resource           = strdup(resource);
   printer->resourcelen        = strlen(resource);
   if (type == PAPPL_SERVICE_TYPE_SCAN)
@@ -255,26 +290,35 @@ papplPrinterCreate(
   printer->next_job_id        = 1;
   printer->max_active_jobs    = (system->options & PAPPL_SOPTIONS_MULTI_QUEUE) ? 0 : 1;
   printer->max_completed_jobs = 100;
+  printer->usb_vendor_id      = 0x1209;	// See <pid.codes>
+  printer->usb_product_id     = 0x8011;
 
   if (papplSystemGetDefaultPrintGroup(system, print_group, sizeof(print_group)))
     papplPrinterSetPrintGroup(printer, print_group);
 
+  // If the driver is "auto", figure out the proper driver name...
+  if (!strcmp(driver_name, "auto") && system->autoadd_cb)
+  {
+    if ((driver_name = (system->autoadd_cb)(printer_name, device_uri, device_id, system->driver_cbdata)) == NULL)
+    {
+      errno = EIO;
+      _papplPrinterDelete(printer);
+      return (NULL);
+    }
+  }
+
   // Initialize driver...
   driver_attrs = NULL;
-  if (type == PAPPL_SERVICE_TYPE_SCAN)
-    _papplPrinterInitPrintDriverData(&driver_data);
-  else
-    _papplPrinterInitPrintDriverData(&driver_data);
+  _papplPrinterInitDriverData(&driver_data);
 
-  if (!(system->pdriver_cb)(system, driver_name, device_uri, &driver_data, &driver_attrs, system->pdriver_cbdata))
+  if (!(system->driver_cb)(system, driver_name, device_uri, device_id, &driver_data, &driver_attrs, system->driver_cbdata))
   {
-    free_printer(printer);
+    errno = EIO;
+    _papplPrinterDelete(printer);
     return (NULL);
   }
-  if (type == PAPPL_SERVICE_TYPE_SCAN)
-    papplPrinterSetPrintDriverData(printer, &driver_data, driver_attrs);
-  else
-    papplPrinterSetPrintDriverData(printer, &driver_data, driver_attrs);
+
+  papplPrinterSetDriverData(printer, &driver_data, driver_attrs);
   ippDelete(driver_attrs);
 
   // Generate printer-device-id value as needed...
@@ -349,50 +393,6 @@ papplPrinterCreate(
 
   // copies-default
   ippAddInteger(printer->attrs, IPP_TAG_PRINTER, IPP_TAG_INTEGER, "copies-default", 1);
-
-  // copies-supported
-  // TODO: filter based on document format
-  if (type == PAPPL_SERVICE_TYPE_SCAN)
-  {
-    // copies-supported
-    ippAddRange(printer->attrs, IPP_TAG_PRINTER, "copies-supported", 1, 1);   //Value must be 1 for SCAN
-
-
-  // document-format-default	    // document-format-default
-  ippAddString(printer->attrs, IPP_TAG_PRINTER, IPP_CONST_TAG(IPP_TAG_MIMETYPE), "document-format-default", NULL, "application/octet-stream");	    ippAddString(printer->attrs, IPP_TAG_PRINTER, IPP_CONST_TAG(IPP_TAG_MIMETYPE), "document-format-default", NULL, "application/pdf");
-
-
-  // generated-natural-language-supported	    // input-orientation-requested-supported
-  ippAddString(printer->attrs, IPP_TAG_PRINTER, IPP_CONST_TAG(IPP_TAG_LANGUAGE), "generated-natural-language-supported", NULL, "en");	    ippAddIntegers(printer->attrs, IPP_TAG_PRINTER, IPP_TAG_ENUM, "input-orientation-requested-supported", (int)(sizeof(orientation_requested) / sizeof(orientation_requested[0])), orientation_requested);
-
-
-  // ipp-versions-supported	    // destination-uri-schemes-supported
-  ippAddStrings(printer->attrs, IPP_TAG_PRINTER, IPP_CONST_TAG(IPP_TAG_KEYWORD), "ipp-versions-supported", (int)(sizeof(ipp_versions) / sizeof(ipp_versions[0])), NULL, ipp_versions);	    ippAddStrings(printer->attrs, IPP_TAG_PRINTER, IPP_CONST_TAG(IPP_TAG_KEYWORD), "destination-uri-schemes-supported", (int)(sizeof(destination_uri_schemes) / sizeof(destination_uri_schemes[0])), NULL, destination_uri_schemes);
-
-
-  // job-ids-supported	    // multiple-destination-uris-supported
-  ippAddBoolean(printer->attrs, IPP_TAG_PRINTER, "job-ids-supported", 1);	    ippAddBoolean(printer->attrs, IPP_TAG_PRINTER, "multiple-destination-uris-supported", 0);
-
-
-  // job-k-octets-supported	    // number-of-retries-supported
-  ippAddRange(printer->attrs, IPP_TAG_PRINTER, "job-k-octets-supported", 0, k_supported);	    ippAddRange(printer->attrs, IPP_TAG_PRINTER, "number-of-retries-supported", 0,10);
-
-
-  // job-priority-default	    // retry-interval-supported
-  ippAddInteger(printer->attrs, IPP_TAG_PRINTER, IPP_TAG_INTEGER, "job-priority-default", 50);	    ippAddRange(printer->attrs, IPP_TAG_PRINTER, "retry-interval-supported", 0,5);
-
-
-  // job-priority-supported	    // retry-time-out-supported
-  ippAddInteger(printer->attrs, IPP_TAG_PRINTER, IPP_TAG_INTEGER, "job-priority-supported", 1);	    ippAddRange(printer->attrs, IPP_TAG_PRINTER, "retry-time-out-supported", 0,5);
-
-
-  // job-sheets-default	    // input-quality-supported
-  ippAddString(printer->attrs, IPP_TAG_PRINTER, IPP_CONST_TAG(IPP_TAG_NAME), "job-sheets-default", NULL, "none");	    ippAddIntegers(printer->attrs, IPP_TAG_PRINTER, IPP_TAG_ENUM, "input-quality-supported", (int)(sizeof(print_quality) / sizeof(print_quality[0])), print_quality);
-  }
-  else
-  {
-    /* code */  
-  ippAddRange(printer->attrs, IPP_TAG_PRINTER, "copies-supported", 1, 999);
 
   // document-format-default
   ippAddString(printer->attrs, IPP_TAG_PRINTER, IPP_CONST_TAG(IPP_TAG_MIMETYPE), "document-format-default", NULL, "application/octet-stream");
@@ -528,11 +528,6 @@ papplPrinterCreate(
   // printer-name
   ippAddString(printer->attrs, IPP_TAG_PRINTER, IPP_TAG_NAME, "printer-name", NULL, printer_name);
 
-#if 0 // TODO: put in copy_printer_attributes
-  // printer-strings-languages-supported
-  ippAddStrings(printer->attrs, IPP_TAG_PRINTER, IPP_TAG_LANGUAGE, "printer-strings-languages-supported", (int)(sizeof(printer_strings_languages) / sizeof(printer_strings_languages[0])), NULL, printer_strings_languages);
-#endif // 0
-
   // printer-uuid
   ippAddString(printer->attrs, IPP_TAG_PRINTER, IPP_TAG_URI, "printer-uuid", NULL, uuid);
 
@@ -546,24 +541,11 @@ papplPrinterCreate(
   ippAddStrings(printer->attrs, IPP_TAG_PRINTER, IPP_CONST_TAG(IPP_TAG_KEYWORD), "which-jobs-supported", sizeof(which_jobs) / sizeof(which_jobs[0]), NULL, which_jobs);
 
   // Add the printer to the system...
-  pthread_rwlock_wrlock(&system->rwlock);
+  _papplSystemAddPrinter(system, printer, printer_id);
 
-  if (printer_id)
-    printer->printer_id = printer_id;
-  else
-    printer->printer_id = system->next_printer_id ++;
-
-  if (!system->printers)
-    system->printers = cupsArrayNew3((cups_array_func_t)compare_printers, NULL, NULL, 0, NULL, (cups_afree_func_t)free_printer);
-
-  cupsArrayAdd(system->printers, printer);
-
-  if (!system->default_printer_id)
-    system->default_printer_id = printer->printer_id;
-
-  pthread_rwlock_unlock(&system->rwlock);
-
-  _papplSystemConfigChanged(system);
+  // Do any post-creation work...
+  if (system->create_cb)
+    (system->create_cb)(printer, system->driver_cbdata);
 
   // Add socket listeners...
   if (system->options & PAPPL_SOPTIONS_RAW_SOCKET)
@@ -589,7 +571,7 @@ papplPrinterCreate(
   _papplSystemAddPrinterIcons(system, printer);
 
   // Add web pages, if any...
-  if (system->options & PAPPL_SOPTIONS_STANDARD)
+  if (system->options & PAPPL_SOPTIONS_WEB_INTERFACE)
   {
     snprintf(path, sizeof(path), "%s/", printer->uriname);
     papplSystemAddResourceCallback(system, path, "text/html", (pappl_resource_cb_t)_papplPrinterWebHome, printer);
@@ -614,17 +596,17 @@ papplPrinterCreate(
 
     snprintf(path, sizeof(path), "%s/media", printer->uriname);
     papplSystemAddResourceCallback(system, path, "text/html", (pappl_resource_cb_t)_papplPrinterWebMedia, printer);
-    papplPrinterAddLink(printer, "Media", path, true);
+    papplPrinterAddLink(printer, "Media", path, PAPPL_LOPTIONS_NAVIGATION | PAPPL_LOPTIONS_STATUS);
 
     snprintf(path, sizeof(path), "%s/printing", printer->uriname);
     papplSystemAddResourceCallback(system, path, "text/html", (pappl_resource_cb_t)_papplPrinterWebDefaults, printer);
-    papplPrinterAddLink(printer, "Printing Defaults", path, true);
+    papplPrinterAddLink(printer, "Printing Defaults", path, PAPPL_LOPTIONS_NAVIGATION | PAPPL_LOPTIONS_STATUS);
 
     if (printer->driver_data.has_supplies)
     {
       snprintf(path, sizeof(path), "%s/supplies", printer->uriname);
       papplSystemAddResourceCallback(system, path, "text/html", (pappl_resource_cb_t)_papplPrinterWebSupplies, printer);
-      papplPrinterAddLink(printer, "Supplies", path, false);
+      papplPrinterAddLink(printer, "Supplies", path, PAPPL_LOPTIONS_STATUS);
     }
   }
 
@@ -636,7 +618,52 @@ papplPrinterCreate(
 
 
 //
+// '_papplPrinterDelete()' - Free memory associated with a printer.
+//
+
+void
+_papplPrinterDelete(
+    pappl_printer_t *printer)		// I - Printer
+{
+  // Remove DNS-SD registrations...
+  _papplPrinterUnregisterDNSSDNoLock(printer);
+
+  // If applicable, call the delete function...
+  if (printer->driver_data.delete_cb)
+    (printer->driver_data.delete_cb)(printer, &printer->driver_data);
+
+  // Delete jobs...
+  cupsArrayDelete(printer->active_jobs);
+  cupsArrayDelete(printer->completed_jobs);
+  cupsArrayDelete(printer->all_jobs);
+
+  // Free memory...
+  free(printer->name);
+  free(printer->dns_sd_name);
+  free(printer->location);
+  free(printer->geo_location);
+  free(printer->organization);
+  free(printer->org_unit);
+  free(printer->resource);
+  free(printer->device_id);
+  free(printer->device_uri);
+  free(printer->driver_name);
+  free(printer->usb_storage);
+
+  ippDelete(printer->driver_attrs);
+  ippDelete(printer->attrs);
+
+  cupsArrayDelete(printer->links);
+
+  free(printer);
+}
+
+
+//
 // 'papplPrinterDelete()' - Delete a printer.
+//
+// This function deletes a printer from a system, freeing all memory and
+// canceling all jobs as needed.
 //
 
 void
@@ -650,51 +677,8 @@ papplPrinterDelete(
   pthread_rwlock_wrlock(&system->rwlock);
   cupsArrayRemove(system->printers, printer);
   pthread_rwlock_unlock(&system->rwlock);
-}
 
-
-//
-// 'papplSystemFindPrinter()' - Find a printer by resource, ID, or device URI...
-//
-
-pappl_printer_t *			// O - Printer or `NULL` if none
-papplSystemFindPrinter(
-    pappl_system_t *system,		// I - System
-    const char     *resource,		// I - Resource path or `NULL`
-    int            printer_id,		// I - Printer ID or `0`
-    const char     *device_uri)		// I - Device URI or `NULL`
-{
-  pappl_printer_t	*printer;	// Matching printer
-
-
-  papplLog(system, PAPPL_LOGLEVEL_DEBUG, "papplSystemFindPrinter(system, resource=\"%s\", printer_id=%d, device_uri=\"%s\")", resource, printer_id, device_uri);
-
-  pthread_rwlock_rdlock(&system->rwlock);
-
-  if (resource && (!strcmp(resource, "/") || !strcmp(resource, "/ipp/print") || (!strncmp(resource, "/ipp/print/", 11) && isdigit(resource[11] & 255))))
-  {
-    printer_id = system->default_printer_id;
-    resource   = NULL;
-
-    papplLog(system, PAPPL_LOGLEVEL_DEBUG, "papplSystemFindPrinter: Looking for default printer_id=%d", printer_id);
-  }
-
-  for (printer = (pappl_printer_t *)cupsArrayFirst(system->printers); printer; printer = (pappl_printer_t *)cupsArrayNext(system->printers))
-  {
-    papplLog(system, PAPPL_LOGLEVEL_DEBUG, "papplSystemFindPrinter: printer '%s' - resource=\"%s\", printer_id=%d, device_uri=\"%s\"", printer->name, printer->resource, printer->printer_id, printer->device_uri);
-
-    if (resource && !strncmp(printer->resource, resource, printer->resourcelen) && (!resource[printer->resourcelen] || resource[printer->resourcelen] == '/'))
-      break;
-    else if (printer->printer_id == printer_id)
-      break;
-    else if (device_uri && !strcmp(printer->device_uri, device_uri))
-      break;
-  }
-  pthread_rwlock_unlock(&system->rwlock);
-
-  papplLog(system, PAPPL_LOGLEVEL_DEBUG, "papplSystemFindPrinter: Returning %p(%s)", printer, printer ? printer->name : "none");
-
-  return (printer);
+  _papplSystemConfigChanged(system);
 }
 
 
@@ -732,51 +716,3 @@ compare_completed_jobs(pappl_job_t *a,	// I - First job
 {
   return (b->job_id - a->job_id);
 }
-
-
-//
-// 'compare_printers()' - Compare two printers.
-//
-
-static int				// O - Result of comparison
-compare_printers(pappl_printer_t *a,	// I - First printer
-                 pappl_printer_t *b)	// I - Second printer
-{
-  return (strcmp(a->name, b->name));
-}
-
-
-//
-// 'free_printer()' - Free the memory used by a printer.
-//
-
-static void
-free_printer(pappl_printer_t *printer)	// I - Printer
-{
-  // Remove DNS-SD registrations...
-  _papplPrinterUnregisterDNSSDNoLock(printer);
-
-  // Free memory...
-  free(printer->name);
-  free(printer->dns_sd_name);
-  free(printer->location);
-  free(printer->geo_location);
-  free(printer->organization);
-  free(printer->org_unit);
-  free(printer->resource);
-  free(printer->device_id);
-  free(printer->device_uri);
-  free(printer->driver_name);
-
-  ippDelete(printer->driver_attrs);
-  ippDelete(printer->attrs);
-
-  cupsArrayDelete(printer->active_jobs);
-  cupsArrayDelete(printer->completed_jobs);
-  cupsArrayDelete(printer->all_jobs);
-
-  cupsArrayDelete(printer->links);
-
-  free(printer);
-}
-

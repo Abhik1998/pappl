@@ -48,29 +48,34 @@ static void	jpeg_error_handler(j_common_ptr p);
 //
 // 'papplJobFilterImage()' - Filter an image in memory.
 //
-// This function will print a grayscale or RGB image using the printer's raster
+// This function will print a grayscale or sRGB image using the printer's raster
 // driver interface, scaling and positioning the image as necessary based on
 // the job options, and printing as many copies as requested.
 //
-// The image data is an array of grayscale ("depth" = `1`) or RGB
+// The image data is an array of grayscale ("depth" = `1`) or sRGB
 // ("depth" = `3`) pixels starting at the top-left corner of the image.
+//
+// The image resolution ("ppi") is expressed in pixels per inch and is used for
+// some "print-scaling" modes.  Pass `0` if the image has no explicit resolution
+// information.
 //
 
 bool					// O - `true` on success, `false` otherwise
 papplJobFilterImage(
     pappl_job_t         *job,		// I - Job
     pappl_device_t      *device,	// I - Device
-    pappl_poptions_t    *options,	// I - Print options
+    pappl_pr_options_t  *options,	// I - Print options
     const unsigned char *pixels,	// I - Pointer to the top-left corner of the image data
-    unsigned            width,		// I - Width in columns
-    unsigned            height,		// I - Height in lines
-    unsigned            depth,		// I - Bytes per pixel (`1` for grayscale or `3` for RGB)
+    int                 width,		// I - Width in columns
+    int                 height,		// I - Height in lines
+    int                 depth,		// I - Bytes per pixel (`1` for grayscale or `3` for sRGB)
+    int                 ppi,		// I - Pixels per inch (`0` for unknown)
     bool		smoothing)	// I - `true` to smooth/interpolate the image, `false` for nearest-neighbor sampling
 {
   int			i;		// Looping var
-  pappl_pdriver_data_t	driver_data;	// Printer driver data
+  pappl_pr_driver_data_t driver_data;	// Printer driver data
   const unsigned char	*dither;	// Dither line
-  unsigned		ileft,		// Imageable left margin
+  int			ileft,		// Imageable left margin
 			itop,		// Imageable top margin
 			iwidth,		// Imageable width
 			iheight;	// Imageable length/height
@@ -81,24 +86,24 @@ papplJobFilterImage(
 			bit;		// Current bit
   const unsigned char	*pixbase,	// Pointer to first pixel
 			*pixptr;	// Pointer into image
-  unsigned		img_width,	// Rotated image width
+  int			img_width,	// Rotated image width
 			img_height,	// Rotated image height
 			x,		// X position
 			xsize,		// Scaled width
-			xstep,		// X step
 			xstart,		// X start position
 			xend,		// X end position
 			y,		// Y position
 			ysize,		// Scaled height
 			ystart,		// Y start position
 			yend;		// Y end position
-  int			xdir,
+  int			xdir,		// X direction
 			xerr,		// X error accumulator
 			xmod,		// X modulus
-			ydir;
+			xstep,		// X step
+			ydir;		// Y direction
 
 
-  // TODO: Implement bilinear interpolation
+  // TODO: Implement interpolation (Issue #64)
   (void)smoothing;
 
   // Images contain a single page/impression...
@@ -109,21 +114,21 @@ papplJobFilterImage(
     // Scale to fill the entire media area...
     ileft   = 0;
     itop    = 0;
-    iwidth  = options->header.cupsWidth;
-    iheight = options->header.cupsHeight;
+    iwidth  = (int)options->header.cupsWidth;
+    iheight = (int)options->header.cupsHeight;
   }
   else
   {
     // Scale/center within the margins...
     ileft   = options->media.left_margin * options->printer_resolution[0] / 2540;
     itop    = options->media.top_margin * options->printer_resolution[1] / 2540;
-    iwidth  = options->header.cupsWidth - (options->media.left_margin + options->media.right_margin) * options->printer_resolution[0] / 2540;
-    iheight = options->header.cupsHeight - (options->media.bottom_margin + options->media.top_margin) * options->printer_resolution[1] / 2540;
+    iwidth  = (int)options->header.cupsWidth - (options->media.left_margin + options->media.right_margin) * options->printer_resolution[0] / 2540;
+    iheight = (int)options->header.cupsHeight - (options->media.bottom_margin + options->media.top_margin) * options->printer_resolution[1] / 2540;
   }
 
-  papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "ileft=%u, itop=%u, iwidth=%u, iheight=%u", ileft, itop, iwidth, iheight);
+  papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "ileft=%d, itop=%d, iwidth=%d, iheight=%d", ileft, itop, iwidth, iheight);
 
-  if (iwidth == 0 || iheight == 0)
+  if (iwidth <= 0 || iheight <= 0)
   {
     papplLogJob(job, PAPPL_LOGLEVEL_ERROR, "Invalid media size");
     return (false);
@@ -144,6 +149,46 @@ papplJobFilterImage(
     }
   }
 
+  if (options->print_scaling == PAPPL_SCALING_AUTO || options->print_scaling == PAPPL_SCALING_AUTO_FIT)
+  {
+    if (ppi <= 0)
+    {
+      // No resolution information, so just force scaling the image to fit/fill
+      xsize = iwidth + 1;
+      ysize = iheight + 1;
+    }
+    else if (options->orientation_requested == IPP_ORIENT_PORTRAIT || options->orientation_requested == IPP_ORIENT_REVERSE_PORTRAIT)
+    {
+      xsize = width * options->printer_resolution[0] / ppi;
+      ysize = height * options->printer_resolution[1] / ppi;
+    }
+    else
+    {
+      xsize = height * options->printer_resolution[0] / ppi;
+      ysize = width * options->printer_resolution[1] / ppi;
+    }
+
+    if (xsize > iwidth || ysize > iheight)
+    {
+      // Scale to fit/fill based on "print-scaling" and margins...
+      if (options->print_scaling == PAPPL_SCALING_AUTO && options->media.bottom_margin == 0 && options->media.left_margin == 0 && options->media.right_margin == 0 && options->media.top_margin == 0)
+        options->print_scaling = PAPPL_SCALING_FILL;
+      else
+        options->print_scaling = PAPPL_SCALING_FIT;
+    }
+    else
+    {
+      // Do no scaling...
+      options->print_scaling = PAPPL_SCALING_NONE;
+    }
+  }
+  else if (options->print_scaling == PAPPL_SCALING_NONE && ppi <= 0)
+  {
+    // Force a default PPI value of 200, which fits a typical 1080p sized
+    // screenshot on a standard letter/A4 page.
+    ppi = 200;
+  }
+
   switch (options->orientation_requested)
   {
     default :
@@ -151,15 +196,26 @@ papplJobFilterImage(
         pixbase    = pixels;
         img_width  = width;
         img_height = height;
-        xdir       = depth;
-        ydir       = depth * width;
+        xdir       = (int)depth;
+        ydir       = (int)depth * (int)width;
 
-	xsize = iwidth;
-	ysize = xsize * height / width;
-	if (ysize > iheight)
+        if (options->print_scaling == PAPPL_SCALING_NONE)
+        {
+          // No scaling
+	  xsize = img_width * options->printer_resolution[0] / ppi;
+	  ysize = img_height * options->printer_resolution[1] / ppi;
+        }
+        else
 	{
-	  ysize = iheight;
-	  xsize = ysize * width / height;
+	  // Fit/fill
+	  xsize = iwidth;
+	  ysize = xsize * height / width;
+
+	  if ((ysize > iheight && options->print_scaling == PAPPL_SCALING_FIT) || (ysize < iheight && options->print_scaling == PAPPL_SCALING_FILL))
+	  {
+	    ysize = iheight;
+	    xsize = ysize * width / height;
+	  }
 	}
 	break;
 
@@ -167,31 +223,53 @@ papplJobFilterImage(
         pixbase    = pixels + depth * width * height - depth;
         img_width  = width;
         img_height = height;
-        xdir       = -depth;
-        ydir       = -depth * width;
+        xdir       = -(int)depth;
+        ydir       = -(int)depth * (int)width;
 
-	xsize = iwidth;
-	ysize = xsize * height / width;
-	if (ysize > iheight)
+        if (options->print_scaling == PAPPL_SCALING_NONE)
+        {
+          // No scaling
+	  xsize = img_width * options->printer_resolution[0] / ppi;
+	  ysize = img_height * options->printer_resolution[1] / ppi;
+        }
+        else
 	{
-	  ysize = iheight;
-	  xsize = ysize * width / height;
+	  // Fit/fill
+	  xsize = iwidth;
+	  ysize = xsize * height / width;
+
+	  if ((ysize > iheight && options->print_scaling == PAPPL_SCALING_FIT) || (ysize < iheight && options->print_scaling == PAPPL_SCALING_FILL))
+	  {
+	    ysize = iheight;
+	    xsize = ysize * width / height;
+	  }
 	}
 	break;
 
     case IPP_ORIENT_LANDSCAPE : // 90 counter-clockwise
-        pixbase    = pixels + width - depth;
+        pixbase    = pixels + depth * width - depth;
         img_width  = height;
         img_height = width;
-        xdir       = depth * width;
-        ydir       = -depth;
+        xdir       = (int)depth * (int)width;
+        ydir       = -(int)depth;
 
-	xsize = iwidth;
-	ysize = xsize * width / height;
-	if (ysize > iheight)
+        if (options->print_scaling == PAPPL_SCALING_NONE)
+        {
+          // No scaling
+	  xsize = img_width * options->printer_resolution[0] / ppi;
+	  ysize = img_height * options->printer_resolution[1] / ppi;
+        }
+        else
 	{
-	  ysize = iheight;
-	  xsize = ysize * height / width;
+	  // Fit/fill
+	  xsize = iwidth;
+	  ysize = xsize * width / height;
+
+	  if ((ysize > iheight && options->print_scaling == PAPPL_SCALING_FIT) || (ysize < iheight && options->print_scaling == PAPPL_SCALING_FILL))
+	  {
+	    ysize = iheight;
+	    xsize = ysize * height / width;
+	  }
 	}
 	break;
 
@@ -199,36 +277,54 @@ papplJobFilterImage(
         pixbase    = pixels + depth * (height - 1) * width;
         img_width  = height;
         img_height = width;
-        xdir       = -depth * width;
-        ydir       = depth;
+        xdir       = -(int)depth * (int)width;
+        ydir       = (int)depth;
 
-	xsize = iwidth;
-	ysize = xsize * width / height;
-	if (ysize > iheight)
+        if (options->print_scaling == PAPPL_SCALING_NONE)
+        {
+          // No scaling
+	  xsize = img_width * options->printer_resolution[0] / ppi;
+	  ysize = img_height * options->printer_resolution[1] / ppi;
+        }
+        else
 	{
-	  ysize = iheight;
-	  xsize = ysize * height / width;
+	  // Fit/fill
+	  xsize = iwidth;
+	  ysize = xsize * width / height;
+
+	  if ((ysize > iheight && options->print_scaling == PAPPL_SCALING_FIT) || (ysize < iheight && options->print_scaling == PAPPL_SCALING_FILL))
+	  {
+	    ysize = iheight;
+	    xsize = ysize * height / width;
+	  }
 	}
         break;
   }
 
-  options->orientation_requested = IPP_ORIENT_PORTRAIT; // Don't rotate in the driver
+  // Don't rotate in the driver...
+  options->orientation_requested = IPP_ORIENT_PORTRAIT;
 
   xstart = ileft + (iwidth - xsize) / 2;
   xend   = xstart + xsize;
   ystart = itop + (iheight - ysize) / 2;
   yend   = ystart + ysize;
 
-  xmod   = img_width % xsize;
-  xstep  = (img_width / xsize) * xdir;
+  xmod   = (int)(img_width % xsize);
+  xstep  = (int)(img_width / xsize) * xdir;
 
-  papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "xsize=%u, xstart=%u, xend=%u, xdir=%d, xmod=%d, xstep=%d", xsize, xstart, xend, xdir, xmod, xstep);
-  papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "ysize=%u, ystart=%u, yend=%u, ydir=%d", ysize, ystart, yend, ydir);
+  if (xend > (int)options->header.cupsWidth)
+    xend = (int)options->header.cupsWidth;
 
-  papplPrinterGetPrintDriverData(papplJobGetPrinter(job), &driver_data);
+  if (yend > (int)options->header.cupsHeight)
+    yend = (int)options->header.cupsHeight;
+
+  papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "xsize=%d, xstart=%d, xend=%d, xdir=%d, xmod=%d, xstep=%d", xsize, xstart, xend, xdir, xmod, xstep);
+  papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "ysize=%d, ystart=%d, yend=%d, ydir=%d", ysize, ystart, yend, ydir);
+
+  papplPrinterGetDriverData(papplJobGetPrinter(job), &driver_data);
 
   // Start the job...
-  if (!(driver_data.rstartjob)(job, options, device))
+  if (!(driver_data.rstartjob_cb)(job, options, device))
   {
     papplLogJob(job, PAPPL_LOGLEVEL_ERROR, "Unable to start raster job.");
     goto abort_job;
@@ -244,7 +340,7 @@ papplJobFilterImage(
   // Print every copy...
   for (i = 0; i < options->copies; i ++)
   {
-    if (!(driver_data.rstartpage)(job, options, device, 1))
+    if (!(driver_data.rstartpage_cb)(job, options, device, 1))
     {
       papplLogJob(job, PAPPL_LOGLEVEL_ERROR, "Unable to start raster page.");
       goto abort_job;
@@ -254,7 +350,7 @@ papplJobFilterImage(
     memset(line, white, options->header.cupsBytesPerLine);
     for (y = 0; y < ystart; y ++)
     {
-      if (!(driver_data.rwrite)(job, options, device, y, line))
+      if (!(driver_data.rwriteline_cb)(job, options, device, (unsigned)y, line))
       {
 	papplLogJob(job, PAPPL_LOGLEVEL_ERROR, "Unable to write raster line %u.", y);
 	goto abort_job;
@@ -266,12 +362,24 @@ papplJobFilterImage(
     {
       pixptr = pixbase + ydir * (int)((y - ystart) * (img_height - 1) / (ysize - 1));
 
+      if (xstart < 0)
+      {
+	pixptr -= (xstart * xmod / xsize) * xdir;
+	x    = 0;
+	xerr = -xmod / 2 - (xstart * xmod) % xsize;
+      }
+      else
+      {
+	x    = xstart;
+	xerr = -xmod / 2;
+      }
+
       if (options->header.cupsBitsPerPixel == 1)
       {
         // Need to dither the image to 1-bit black...
 	dither = options->dither[y & 15];
 
-	for (x = xstart, lineptr = line + x / 8, bit = 128 >> (x & 7), byte = 0, xerr = xmod / 2; x < xend; x ++)
+	for (lineptr = line + x / 8, bit = 128 >> (x & 7), byte = 0; x < xend; x ++)
 	{
 	  // Dither the current pixel...
 	  if (*pixptr <= dither[x & 15])
@@ -280,7 +388,7 @@ papplJobFilterImage(
 	  // Advance to the next pixel...
 	  pixptr += xstep;
 	  xerr += xmod;
-	  if (xerr >= xsize)
+	  if (xerr >= (int)xsize)
 	  {
 	    // Accumulated error has overflowed, advance another pixel...
 	    xerr -= xsize;
@@ -305,7 +413,7 @@ papplJobFilterImage(
       else if (options->header.cupsColorSpace == CUPS_CSPACE_K)
       {
         // Need to invert the image...
-	for (x = xstart, lineptr = line + x, xerr = xmod / 2; x < xend; x ++)
+	for (lineptr = line + x; x < xend; x ++)
 	{
 	  // Copy an inverted grayscale pixel...
 	  *lineptr++ = ~*pixptr;
@@ -313,7 +421,7 @@ papplJobFilterImage(
 	  // Advance to the next pixel...
 	  pixptr += xstep;
 	  xerr += xmod;
-	  if (xerr >= xsize)
+	  if (xerr >= (int)xsize)
 	  {
 	    // Accumulated error has overflowed, advance another pixel...
 	    xerr -= xsize;
@@ -324,9 +432,9 @@ papplJobFilterImage(
       else
       {
         // Need to copy the image...
-        unsigned bpp = options->header.cupsBitsPerPixel / 8;
+        int bpp = (int)options->header.cupsBitsPerPixel / 8;
 
-	for (x = xstart, lineptr = line + x * bpp, xerr = -xmod / 2; x < xend; x ++)
+	for (lineptr = line + x * bpp; x < xend; x ++)
 	{
 	  // Copy a grayscale or RGB pixel...
 	  memcpy(lineptr, pixptr, bpp);
@@ -335,7 +443,7 @@ papplJobFilterImage(
 	  // Advance to the next pixel...
 	  pixptr += xstep;
 	  xerr += xmod;
-	  if (xerr >= xsize)
+	  if (xerr >= (int)xsize)
 	  {
 	    // Accumulated error has overflowed, advance another pixel...
 	    xerr -= xsize;
@@ -344,7 +452,7 @@ papplJobFilterImage(
 	}
       }
 
-      if (!(driver_data.rwrite)(job, options, device, y, line))
+      if (!(driver_data.rwriteline_cb)(job, options, device, (unsigned)y, line))
       {
 	papplLogJob(job, PAPPL_LOGLEVEL_ERROR, "Unable to write raster line %u.", y);
 	goto abort_job;
@@ -353,9 +461,9 @@ papplJobFilterImage(
 
     // Trailing blank space...
     memset(line, white, options->header.cupsBytesPerLine);
-    for (; y < options->header.cupsHeight; y ++)
+    for (; y < (int)options->header.cupsHeight; y ++)
     {
-      if (!(driver_data.rwrite)(job, options, device, y, line))
+      if (!(driver_data.rwriteline_cb)(job, options, device, (unsigned)y, line))
       {
 	papplLogJob(job, PAPPL_LOGLEVEL_ERROR, "Unable to write raster line %u.", y);
 	goto abort_job;
@@ -363,7 +471,7 @@ papplJobFilterImage(
     }
 
     // End the page...
-    if (!(driver_data.rendpage)(job, options, device, 1))
+    if (!(driver_data.rendpage_cb)(job, options, device, 1))
     {
       papplLogJob(job, PAPPL_LOGLEVEL_ERROR, "Unable to end raster page.");
       goto abort_job;
@@ -373,7 +481,7 @@ papplJobFilterImage(
   }
 
   // End the job...
-  if (!(driver_data.rendjob)(job, options, device))
+  if (!(driver_data.rendjob_cb)(job, options, device))
   {
     papplLogJob(job, PAPPL_LOGLEVEL_ERROR, "Unable to end raster job.");
     goto abort_job;
@@ -406,8 +514,9 @@ _papplJobFilterJPEG(
 {
   const char		*filename;	// JPEG filename
   FILE			*fp;		// JPEG file
-  pappl_poptions_t	options;	// Job options
+  pappl_pr_options_t	*options = NULL;// Job options
   struct jpeg_decompress_struct	dinfo;	// Decompressor info
+  int			ppi;		// Pixels per inch
   _pappl_jpeg_err_t	jerr;		// Error handler info
   unsigned char		*pixels = NULL;	// Image pixels
   JSAMPROW		row;		// Sample row pointer
@@ -443,11 +552,11 @@ _papplJobFilterJPEG(
   jpeg_read_header(&dinfo, TRUE);
 
   // Get job options and request the image data in the format we need...
-  papplJobGetPrintOptions(job, &options, 1, dinfo.num_components > 1);
+  options = papplJobCreatePrintOptions(job, 1, dinfo.num_components > 1);
 
   dinfo.quantize_colors = FALSE;
 
-  if (options.header.cupsNumColors == 1)
+  if (options->header.cupsNumColors == 1)
   {
     dinfo.out_color_space      = JCS_GRAYSCALE;
     dinfo.out_color_components = 1;
@@ -464,7 +573,7 @@ _papplJobFilterJPEG(
 
   papplLogJob(job, PAPPL_LOGLEVEL_INFO, "Loading %dx%dx%d JPEG image.", dinfo.output_width, dinfo.output_height, dinfo.output_components);
 
-  if ((pixels = (unsigned char *)malloc((size_t)(dinfo.output_width * dinfo.output_height * dinfo.output_components))) == NULL)
+  if ((pixels = (unsigned char *)malloc((size_t)(dinfo.output_width * dinfo.output_height * (unsigned)dinfo.output_components))) == NULL)
   {
     papplLogJob(job, PAPPL_LOGLEVEL_ERROR, "Unable to allocate memory for %dx%dx%d JPEG image.", dinfo.output_width, dinfo.output_height, dinfo.output_components);
     papplJobSetReasons(job, PAPPL_JREASON_ERRORS_DETECTED, PAPPL_JREASON_NONE);
@@ -479,10 +588,33 @@ _papplJobFilterJPEG(
     jpeg_read_scanlines(&dinfo, &row, 1);
   }
 
-  ret = papplJobFilterImage(job, device, &options, pixels, dinfo.output_width, dinfo.output_height, dinfo.output_components, true);
+  if (dinfo.X_density != dinfo.Y_density)
+  {
+    papplLogJob(job, PAPPL_LOGLEVEL_WARN, "Unsupported non-square JPEG resolution %ux%u%s, using default.", dinfo.X_density, dinfo.Y_density, dinfo.density_unit == 1 ? "dpi" : dinfo.density_unit == 2 ? "dpcm" : "???");
+    ppi = 0;
+  }
+  else
+  {
+    switch (dinfo.density_unit)
+    {
+      default :
+      case 0 : // Unknown units
+          ppi = 0;
+          break;
+      case 1 : // Dots-per-inch
+          ppi = dinfo.X_density;
+          break;
+      case 2 : // Dots-per-centimeter
+          ppi = dinfo.X_density * 254 / 100;
+          break;
+    }
+  }
+
+  ret = papplJobFilterImage(job, device, options, pixels, (int)dinfo.output_width, (int)dinfo.output_height, dinfo.output_components, ppi, true);
 
   finish_jpeg:
 
+  papplJobDeletePrintOptions(options);
   free(pixels);
   jpeg_finish_decompress(&dinfo);
   jpeg_destroy_decompress(&dinfo);
@@ -504,7 +636,7 @@ _papplJobFilterPNG(
     pappl_device_t *device,		// I - Device
     void           *data)		// I - Filter data (unused)
 {
-  pappl_poptions_t	options;	// Job options
+  pappl_pr_options_t	*options = NULL;// Job options
   png_image		png;		// PNG image data
   png_color		bg;		// Background color
   int			png_bpp;	// Bytes per pixel
@@ -532,9 +664,9 @@ _papplJobFilterPNG(
   papplLogJob(job, PAPPL_LOGLEVEL_INFO, "PNG image is %ux%u", png.width, png.height);
 
   // Prepare options...
-  papplJobGetPrintOptions(job, &options, 1, (png.format & PNG_FORMAT_FLAG_COLOR) != 0);
+  options = papplJobCreatePrintOptions(job, 1, (png.format & PNG_FORMAT_FLAG_COLOR) != 0);
 
-  if (png.format & PNG_FORMAT_FLAG_COLOR)
+  if (options->header.cupsNumColors > 1)
   {
     png.format = PNG_FORMAT_RGB;
     png_bpp    = 3;
@@ -556,11 +688,14 @@ _papplJobFilterPNG(
     goto finish_job;
   }
 
-  // Print the image...
-  ret = papplJobFilterImage(job, device, &options, pixels, png.width, png.height, png_bpp, false);
+  // TODO: Get PNG image resolution information (Issue #65)
 
+  // Print the image...
+  ret = papplJobFilterImage(job, device, options, pixels, (int)png.width, (int)png.height, png_bpp, 0, false);
 
   finish_job:
+
+  papplJobDeletePrintOptions(options);
 
   // Free the image data when we're done...
   png_image_free(&png);

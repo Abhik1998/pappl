@@ -1,0 +1,298 @@
+.TH pappl-resource 3 "pappl resource functions" "2020-12-08" "pappl resource functions"
+.SH NAME
+pappl-resource \- pappl resource functions
+.SH LIBRARY
+Printer Application Framework (libpappl, "pkg-config --cflags --libs pappl")
+.SH SYNOPSIS
+.B #include <pappl/pappl.h>
+.PP
+.I typedef struct _pappl_printer_s
+.B pappl_printer_t;
+.PP
+.I typedef struct _pappl_system_s
+.B pappl_system_t;
+.PP
+.I void
+.br
+.BI papplPrinterAddLink "(pappl_printer_t *printer, const char *label, const char *path_or_url, bool secure);"
+.PP
+.I void
+.br
+.BI papplSystemAddLink "(pappl_system_t *system, const char *label, const char *path_or_url, bool secure);"
+.PP
+.I void
+.br
+.BI papplSystemAddResourceCallback "(pappl_system_t *system, const char *path, const char *format, pappl_resource_cb_t cb, void *data);"
+.PP
+.I void
+.br
+.BI papplSystemAddResourceData "(pappl_system_t *system, const char *path, const char *format, const void *data, size_t datalen);"
+.PP
+.I void
+.br
+.BI papplSystemAddResourceDirectory "(pappl_system_t *system, const char *basepath, const char *directory);"
+.PP
+.I void
+.br
+.BI papplSystemAddResourceFile "(pappl_system_t *system, const char *path, const char *format, const char *filename);"
+.PP
+.I void
+.br
+.BI papplSystemAddResourceString "(pappl_system_t *system, const char *path, const char *format, const char *data);"
+.PP
+.I void
+.br
+.BI papplSystemAddStringsData "(pappl_system_t *system, const char *path, const char *language, const char *data);"
+.PP
+.I void
+.br
+.BI papplSystemAddStringsFile "(pappl_system_t *system, const char *path, const char *language, const char *filename);"
+.PP
+.I void
+.br
+.BI papplSystemRemoveResource "(pappl_system_t *system, const char *path);"
+
+.SH DESCRIPTION
+The
+.B PAPPL
+resource functions manage resource files, callbacks, and links in the printer application.
+.SH FUNCTIONS
+.SS papplPrinterAddLink
+Add a printer link to the navigation header.
+.PP
+.nf
+void papplPrinterAddLink (
+    pappl_printer_t *printer,
+    const char *label,
+    const char *path_or_url,
+    pappl_loptions_t options
+);
+.fi
+.PP
+This function adds a navigation link for a printer.  The "path_or_url"
+argument specifies a absolute path such as "/ipp/print/example/page" or an
+absolute URL such as "https://www.example.com/".  The "options" argument
+specifies where the link is shown and whether the link should redirect an
+absolute path to the secure ("https://.../path") web interface.
+.SS papplPrinterRemoveLink
+Remove a printer link from the navigation header.
+.PP
+.nf
+void papplPrinterRemoveLink (
+    pappl_printer_t *printer,
+    const char *label
+);
+.fi
+.PP
+This function removes the named link for the printer.
+.SS papplSystemAddLink
+Add a link to the navigation header.
+.PP
+.nf
+void papplSystemAddLink (
+    pappl_system_t *system,
+    const char *label,
+    const char *path_or_url,
+    pappl_loptions_t options
+);
+.fi
+.PP
+This function adds a navigation link for the system.  The "path_or_url"
+argument specifies a absolute path such as "/page" or an absolute URL such
+as "https://www.example.com/".  The "options" argument specifies where the
+link is shown and whether the link should redirect an absolute path to the
+secure ("https://.../path") web interface.
+.SS papplSystemAddResourceCallback
+Add a dynamic resource that uses a
+callback function.
+.PP
+.nf
+void papplSystemAddResourceCallback (
+    pappl_system_t *system,
+    const char *path,
+    const char *format,
+    pappl_resource_cb_t cb,
+    void *data
+);
+.fi
+.PP
+This function adds a dynamic resource at the specified path.  When a client
+GET or POST request is received at the specified path, the "cb" function
+will be called with the client pointer and "data" pointer to respond to it.
+.PP
+Resource callbacks are most often used to implement custom web pages.
+.PP
+.IN 5
+Note: Any custom web page that is added prior to calling the
+.IN 5
+\fIpapplSystemRun\fR function will replace the corresponding standard web
+.IN 5
+page at the same path.
+.SS papplSystemAddResourceData
+Add a static data resource.
+.PP
+.nf
+void papplSystemAddResourceData (
+    pappl_system_t *system,
+    const char *path,
+    const char *format,
+    const void *data,
+    size_t datalen
+);
+.fi
+.PP
+This function adds a static resource at the specified path.  The provided
+data is not copied to the resource and must remain stable for as long as the
+resource is added to the system.
+.PP
+.IN 5
+Note: Any resource that is added prior to calling the \fIpapplSystemRun\fR
+.IN 5
+function will replace the corresponding standard resource at the same path.
+.SS papplSystemAddResourceDirectory
+Add external files in a directory as
+resources.
+.PP
+.nf
+void papplSystemAddResourceDirectory (
+    pappl_system_t *system,
+    const char *basepath,
+    const char *directory
+);
+.fi
+.PP
+This function adds static resources from the specified directory under the
+specified path.  The directory is scanned and only those files present at the
+time of the call are available, and those files must remain stable for as
+long as the resources are added to the system..
+.PP
+.IN 5
+Note: Any resource that is added prior to calling the \fIpapplSystemRun\fR
+.IN 5
+function will replace the corresponding standard resource at the same path.
+.SS papplSystemAddResourceFile
+Add an external file as a resource.
+.PP
+.nf
+void papplSystemAddResourceFile (
+    pappl_system_t *system,
+    const char *path,
+    const char *format,
+    const char *filename
+);
+.fi
+.PP
+This function adds a static resource at the specified path.  The provided
+file is not copied to the resource and must remain stable for as long as the
+resource is added to the system.
+.PP
+.IN 5
+Note: Any resource that is added prior to calling the \fIpapplSystemRun\fR
+.IN 5
+function will replace the corresponding standard resource at the same path.
+.SS papplSystemAddResourceString
+Add a static data resource as a C string.
+.PP
+.nf
+void papplSystemAddResourceString (
+    pappl_system_t *system,
+    const char *path,
+    const char *format,
+    const char *data
+);
+.fi
+.PP
+This function adds a static resource at the specified path.  The provided
+data is not copied to the resource and must remain stable for as long as the
+resource is added to the system.
+.PP
+.IN 5
+Note: Any resource that is added prior to calling the \fIpapplSystemRun\fR
+.IN 5
+function will replace the corresponding standard resource at the same path.
+.SS papplSystemAddStringsData
+Add a static localization file resource.
+.PP
+.nf
+void papplSystemAddStringsData (
+    pappl_system_t *system,
+    const char *path,
+    const char *language,
+    const char *data
+);
+.fi
+.PP
+This function adds a static localization resource at the specified path.
+Localization files use the NeXTStep strings ("text/strings") format defined
+in PWG Candidate Standard 5100.13-2013.  The provided data is not copied to
+the resource and must remain stable for as long as the resource is added to
+the system.
+.PP
+.IN 5
+Note: Any resource that is added prior to calling the \fIpapplSystemRun\fR
+.IN 5
+function will replace the corresponding standard resource at the same path.
+.SS papplSystemAddStringsFile
+Add an external localization file resource.
+.PP
+.nf
+void papplSystemAddStringsFile (
+    pappl_system_t *system,
+    const char *path,
+    const char *language,
+    const char *filename
+);
+.fi
+.PP
+This function adds a static localization resource at the specified path.
+Localization files use the NeXTStep strings ("text/strings") format defined
+in PWG Candidate Standard 5100.13-2013.  The provided file is not copied to
+the resource and must remain stable for as long as the resource is added to
+the system.
+.PP
+.IN 5
+Note: Any resource that is added prior to calling the \fIpapplSystemRun\fR
+.IN 5
+function will replace the corresponding standard resource at the same path.
+.SS papplSystemRemoveLink
+Remove a link from the navigation header.
+.PP
+.nf
+void papplSystemRemoveLink (
+    pappl_system_t *system,
+    const char *label
+);
+.fi
+.PP
+This function removes the named link for the system.
+.SS papplSystemRemoveResource
+Remove a resource at the specified path.
+.PP
+.nf
+void papplSystemRemoveResource (
+    pappl_system_t *system,
+    const char *path
+);
+.fi
+.PP
+This function removes a resource at the specified path.
+.SH SEE ALSO
+.BR pappl (1),
+.BR pappl-client (3),
+.BR pappl-device (3),
+.BR pappl-job (3),
+.BR pappl-log (3),
+.BR pappl-mainline (3),
+.BR pappl-makeresheader (1),
+.BR pappl-printer (3),
+.BR pappl-resource (3),
+.BR pappl-system (3),
+https://www.msweet.org/pappl
+.SH COPYRIGHT
+Copyright \[co] 2019-2020 by Michael R Sweet.
+.PP
+.B PAPPL
+is licensed under the Apache License Version 2.0 with an (optional) exception to allow linking against GPL2/LGPL2 software (like older versions of CUPS), so it can be used
+.I freely
+in any project you'd like.
+See the files "LICENSE" and "NOTICE" in the source distribution for more information.

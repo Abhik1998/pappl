@@ -277,6 +277,8 @@ papplSystemDelete(
 
   _papplSystemUnregisterDNSSDNoLock(system);
 
+  cupsArrayDelete(system->printers);
+
   free(system->uuid);
   free(system->name);
   free(system->dns_sd_name);
@@ -297,7 +299,6 @@ papplSystemDelete(
 
   cupsArrayDelete(system->filters);
   cupsArrayDelete(system->links);
-  cupsArrayDelete(system->printers);
   cupsArrayDelete(system->resources);
 
   pthread_rwlock_destroy(&system->rwlock);
@@ -394,6 +395,7 @@ papplSystemRun(pappl_system_t *system)	// I - System
   {
     papplSystemAddResourceCallback(system, "/logfile.txt", "text/plain", (pappl_resource_cb_t)_papplSystemWebLogFile, system);
     papplSystemAddResourceCallback(system, "/logs", "text/html", (pappl_resource_cb_t)_papplSystemWebLogs, system);
+    papplSystemAddLink(system, "View Logs", "/logs", PAPPL_LOPTIONS_LOGGING | PAPPL_LOPTIONS_HTTPS_REQUIRED);
   }
 
   if (system->options & PAPPL_SOPTIONS_WEB_INTERFACE)
@@ -402,6 +404,7 @@ papplSystemRun(pappl_system_t *system)	// I - System
     {
       papplSystemAddResourceCallback(system, "/", "text/html", (pappl_resource_cb_t)_papplSystemWebHome, system);
       papplSystemAddResourceCallback(system, "/addprinter", "text/html", (pappl_resource_cb_t)_papplSystemWebAddPrinter, system);
+      papplSystemAddLink(system, "Add Printer", "/addprinter", PAPPL_LOPTIONS_PRINTER | PAPPL_LOPTIONS_HTTPS_REQUIRED);
     }
     if (system->options & PAPPL_SOPTIONS_MULTI_QUEUE)
     {
@@ -410,15 +413,24 @@ papplSystemRun(pappl_system_t *system)	// I - System
     if (system->options & PAPPL_SOPTIONS_MULTI_QUEUE)
       papplSystemAddResourceCallback(system, "/config", "text/html", (pappl_resource_cb_t)_papplSystemWebConfig, system);
     if (system->options & PAPPL_SOPTIONS_WEB_NETWORK)
+    {
       papplSystemAddResourceCallback(system, "/network", "text/html", (pappl_resource_cb_t)_papplSystemWebNetwork, system);
+      papplSystemAddLink(system, "Network", "/network", PAPPL_LOPTIONS_OTHER | PAPPL_LOPTIONS_HTTPS_REQUIRED);
+    }
     if (system->options & PAPPL_SOPTIONS_WEB_SECURITY)
+    {
       papplSystemAddResourceCallback(system, "/security", "text/html", (pappl_resource_cb_t)_papplSystemWebSecurity, system);
+      papplSystemAddLink(system, "Security", "/security", PAPPL_LOPTIONS_OTHER | PAPPL_LOPTIONS_HTTPS_REQUIRED);
+    }
 #ifdef HAVE_GNUTLS
     if (system->options & PAPPL_SOPTIONS_WEB_TLS)
     {
       papplSystemAddResourceCallback(system, "/tls-install-crt", "text/html", (pappl_resource_cb_t)_papplSystemWebTLSInstall, system);
+      papplSystemAddLink(system, "Install TLS Certificate", "/tls-install-crt", PAPPL_LOPTIONS_OTHER | PAPPL_LOPTIONS_HTTPS_REQUIRED);
       papplSystemAddResourceCallback(system, "/tls-new-crt", "text/html", (pappl_resource_cb_t)_papplSystemWebTLSNew, system);
+      papplSystemAddLink(system, "Create New TLS Certificate", "/tls-new-crt", PAPPL_LOPTIONS_OTHER | PAPPL_LOPTIONS_HTTPS_REQUIRED);
       papplSystemAddResourceCallback(system, "/tls-new-csr", "text/html", (pappl_resource_cb_t)_papplSystemWebTLSNew, system);
+      papplSystemAddLink(system, "Create TLS Certificate Request", "/tls-new-csr", PAPPL_LOPTIONS_OTHER | PAPPL_LOPTIONS_HTTPS_REQUIRED);
     }
 #endif // HAVE_GNUTLS
   }

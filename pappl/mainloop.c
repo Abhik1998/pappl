@@ -20,23 +20,57 @@
 // Local functions
 //
 
-static void	usage(const char *base_name);
+static void	usage(const char *base_name, bool with_autoadd);
 
 
 //
 // 'papplMainloop()' - Run a standard main loop for printer applications.
 //
+// This function runs a standard main loop for a printer application.  The
+// "argc" and "argv" arguments are those provided to the `main` function.
+//
+// The "version" argument specifies a numeric version number for the printer
+// application that conforms to semantic versioning guidelines with up to four
+// numbers, for example "1.2.3.4".
+//
+// The "footer_html" argument specifies HTML text to use in the footer of the
+// web interface.  If `NULL`, the footer is omitted.
+//
+// The "num_drivers", "drivers", and "driver_cb" arguments specify a list of
+// drivers and the driver callback for printers.  Specify `0` and `NULL` if
+// the drivers are configured in the system callback.  The "autoadd_cb"
+// argument specifies a callback for automatically adding new printers with the
+// "autoadd" sub-command and for auto-detecting the driver when adding manually.
+//
+// The "usage_cb" argument specifies a callback that displays a usage/help
+// summary.  If `NULL`, a generic summary is shown as needed.
+//
+// The "subcmd_name" and "subcmd_cb" arguments specify the name and a callback
+// for a custom sub-command.  If `NULL`, no custom sub-commands will be
+// supported.
+//
+// The "system_cb" argument specifies a function that will create a new
+// `pappl_system_t` object.  If `NULL`, a default system object is created.
+//
+// The "data" argument provides application-specific data for each of the
+// callbacks.
+//
 
 int					// O - Exit status
 papplMainloop(
-    int                  argc,		// I - Number of command line arguments
-    char                 *argv[],	// I - Command line arguments
-    const char           *version,	// I - Version number
-    pappl_ml_usage_cb_t  usage_cb,	// I - Usage callback
-    const char           *subcmd_name,	// I - Sub-command name
-    pappl_ml_subcmd_cb_t subcmd_cb,	// I - Sub-command callback
-    pappl_ml_system_cb_t system_cb,	// I - System callback
-    void                 *data)		// I - Context
+    int                   argc,		// I - Number of command line arguments
+    char                  *argv[],	// I - Command line arguments
+    const char            *version,	// I - Version number
+    const char            *footer_html,	// I - Footer HTML or `NULL` for none
+    int                   num_drivers,	// I - Number of drivers
+    pappl_pr_driver_t     *drivers,	// I - Drivers
+    pappl_pr_autoadd_cb_t autoadd_cb,	// I - Auto-add callback or `NULL` for none
+    pappl_pr_driver_cb_t  driver_cb,	// I - Driver callback
+    const char            *subcmd_name,	// I - Sub-command name or `NULL` for none
+    pappl_ml_subcmd_cb_t  subcmd_cb,	// I - Sub-command callback or `NULL` for none
+    pappl_ml_system_cb_t  system_cb,	// I - System callback or `NULL` for default
+    pappl_ml_usage_cb_t   usage_cb,	// I - Usage callback or `NULL` for default
+    void                  *data)	// I - Context pointer
 {
   const char	*base_name;		// Base Name
   int		i, j;			// Looping vars
@@ -49,6 +83,7 @@ papplMainloop(
   static const char * const subcommands[] =
   {					// List of standard sub-commands
     "add",
+    "autoadd",
     "cancel",
     "default",
     "delete",
@@ -66,8 +101,17 @@ papplMainloop(
 
 
   // Range check input...
-  if (argc < 1 || !argv || !version || !system_cb)
+  if (argc < 1 || !argv)
+  {
+    fputs("ERROR: No command-line arguments were passed to papplMainloop.\n", stderr);
     return (1);
+  }
+
+  if (!version)
+  {
+    fputs("ERROR: No version number string was passed to papplMainloop.\n", stderr);
+    return (1);
+  }
 
   // Save the path to the printer application and get the base name.
   _papplMainloopPath = argv[0];
@@ -81,7 +125,7 @@ papplMainloop(
       if (usage_cb)
         (*usage_cb)(data);
       else
-        usage(base_name);
+        usage(base_name, autoadd_cb != NULL);
 
       return (0);
     }
@@ -224,6 +268,12 @@ papplMainloop(
               break;
 
           case 'o': // -o "NAME=VALUE [... NAME=VALUE]"
+              if (opt[1] && strchr(opt, '='))
+              {
+                fprintf(stderr, "%s: Missing space after '-o'.\n", base_name);
+                return (1);
+              }
+
               i ++;
               if (i >= argc)
               {
@@ -286,6 +336,7 @@ papplMainloop(
           printf("%s: Cannot print more files.\n", base_name);
           return (1);
         }
+
         files[num_files++] = argv[i];
       }
     }
@@ -308,6 +359,18 @@ papplMainloop(
   else if (!strcmp(subcommand, "add"))
   {
     return (_papplMainloopAddPrinter(base_name, num_options, options));
+  }
+  else if (!strcmp(subcommand, "autoadd"))
+  {
+    if (autoadd_cb)
+    {
+      return (_papplMainloopAutoAddPrinters(base_name, num_options, options));
+    }
+    else
+    {
+      fprintf(stderr, "%s: Sub-command 'autoadd' is not supported.\n", base_name);
+      return (1);
+    }
   }
   else if (!strcmp(subcommand, "cancel"))
   {
@@ -347,7 +410,7 @@ papplMainloop(
   }
   else if (!strcmp(subcommand, "server"))
   {
-    return (_papplMainloopRunServer(base_name, num_options, options, system_cb, data));
+    return (_papplMainloopRunServer(base_name, version, footer_html, num_drivers, drivers, autoadd_cb, driver_cb, num_options, options, system_cb, data));
   }
   else if (!strcmp(subcommand, "shutdown"))
   {
@@ -371,7 +434,8 @@ papplMainloop(
 //
 
 static void
-usage(const char *base_name)		// I - Base name of application
+usage(const char *base_name,		// I - Base name of application
+      bool       with_autoadd)		// I - `true` if autoadd command is supported
 {
   printf("Usage: %s SUB-COMMAND [OPTIONS] [FILENAME]\n", base_name);
   printf("       %s [OPTIONS] [FILENAME]\n", base_name);
@@ -379,6 +443,8 @@ usage(const char *base_name)		// I - Base name of application
   puts("");
   puts("Sub-commands:");
   puts("  add PRINTER      Add a printer.");
+  if (with_autoadd)
+    puts("  autoadd          Automatically add supported printers.");
   puts("  cancel           Cancel one or more jobs.");
   puts("  default          Set the default printer.");
   puts("  delete           Delete a printer.");

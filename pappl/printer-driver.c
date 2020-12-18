@@ -19,63 +19,71 @@
 // Local functions...
 //
 
-static ipp_t	*make_attrs(pappl_system_t *system, pappl_pdriver_data_t *data);
+static ipp_t	*make_attrs(pappl_system_t *system, pappl_pr_driver_data_t *data);
+static bool	validate_defaults(pappl_printer_t *printer, pappl_pr_driver_data_t *data);
+static bool	validate_driver(pappl_printer_t *printer, pappl_pr_driver_data_t *data);
+static bool	validate_ready(pappl_printer_t *printer, int num_ready, pappl_media_col_t *ready);
 
 
 //
-// 'papplPrinterGetPrintDriverData()' - Get the current print driver data.
+// 'papplPrinterGetDriverAttributes()' - Get the current driver attributes.
+//
+// This function returns the current driver attributes.
 //
 
-pappl_pdriver_data_t *			// O - Driver data or `NULL` if none
-papplPrinterGetPrintDriverData(
-    pappl_printer_t      *printer,	// I - Printer
-    pappl_pdriver_data_t *data)		// I - Pointer to driver data structure to fill
+ipp_t *					// O - Driver attributes
+papplPrinterGetDriverAttributes(
+    pappl_printer_t *printer)		// I - Printer
+{
+  return (printer ? printer->driver_attrs : NULL);
+}
+
+
+//
+// 'papplPrinterGetDriverData()' - Get the current print driver data.
+//
+// This function copies the current print driver data, defaults, and ready
+// (loaded) media information into the specified buffer.
+//
+
+pappl_pr_driver_data_t *		// O - Driver data or `NULL` if none
+papplPrinterGetDriverData(
+    pappl_printer_t        *printer,	// I - Printer
+    pappl_pr_driver_data_t *data)	// I - Pointer to driver data structure to fill
 {
   if (!printer || !printer->driver_name || !data)
   {
     if (data)
-      _papplPrinterInitPrintDriverData(data);
+      _papplPrinterInitDriverData(data);
 
     return (NULL);
   }
 
-  memcpy(data, &printer->psdriver.driver_data, sizeof(pappl_pdriver_data_t));
+  memcpy(data, &printer->psdriver.driver_data, sizeof(pappl_pr_driver_data_t));
 
   return (data);
 }
 //
-// 'papplPrinterGetDriverName()' - Get the current driver name.
+// 'papplPrinterGetDriverName()' - Get the driver name for a printer.
+//
+// This function returns the driver name for the printer.
 //
 
-char *					// O - Driver name or `NULL` for none
+const char *				// O - Driver name or `NULL` for none
 papplPrinterGetDriverName(
-    pappl_printer_t *printer,		// I - Printer
-    char            *buffer,		// I - String buffer
-    size_t          bufsize)		// I - Size of string buffer
+    pappl_printer_t *printer)		// I - Printer
 {
-  if (!printer || !printer->driver_name || !buffer || bufsize == 0)
-  {
-    if (buffer)
-      *buffer = '\0';
-
-    return (NULL);
-  }
-
-  pthread_rwlock_rdlock(&printer->rwlock);
-  strlcpy(buffer, printer->driver_name, bufsize);
-  pthread_rwlock_unlock(&printer->rwlock);
-
-  return (buffer);
+  return (printer ? printer->driver_name : NULL);
 }
 
 
 //
-// '_papplPrinterInitPrintDriverData()' - Initialize a print driver data structure.
+// '_papplPrinterInitDriverData()' - Initialize a print driver data structure.
 //
 
 void
-_papplPrinterInitPrintDriverData(
-    pappl_pdriver_data_t *d)		// I - Driver data
+_papplPrinterInitDriverData(
+    pappl_pr_driver_data_t *d)		// I - Driver data
 {
   static const pappl_dither_t clustered =
   {					// Clustered-Dot Dither Matrix
@@ -98,7 +106,7 @@ _papplPrinterInitPrintDriverData(
   };
 
 
-  memset(d, 0, sizeof(pappl_pdriver_data_t));
+  memset(d, 0, sizeof(pappl_pr_driver_data_t));
   memcpy(d->gdither, clustered, sizeof(d->gdither));
   memcpy(d->pdither, clustered, sizeof(d->pdither));
 
@@ -109,37 +117,32 @@ _papplPrinterInitPrintDriverData(
   d->sides_supported = PAPPL_SIDES_ONE_SIDED;
   d->sides_default   = PAPPL_SIDES_ONE_SIDED;
 }
-void
-_papplPrinterInitScannerDriverData(
-    pappl_pdriver_data_t *d)		// I - Driver data
-{
-
-  d->orient_default  = IPP_ORIENT_NONE;
-  d->content_default = PAPPL_CONTENT_AUTO;
-  // d->input_content_type_default = PAPPL_SCAN_CONTENT;
-  d->quality_default = IPP_QUALITY_NORMAL;
-  d->sides_supported = PAPPL_SIDES_ONE_SIDED;
-  d->sides_default   = PAPPL_SIDES_ONE_SIDED;
-}
-
 
 //
-// 'papplPrinterSetPrintDriverData()' - Set the print driver data.
+// 'papplPrinterSetDriverData()' - Set the driver data.
 //
-// Note: This function regenerates all of the driver-specific capability
-// attributes like "media-col-database", "sides-supported", and so forth.
-// Use the corresponding `papplPrinterSet` functions to efficiently change the
-// "xxx-default" or "xxx-ready" values.
+// This function validates and sets the driver data, including all defaults and
+// ready (loaded) media.
+//
+// > Note: This function regenerates all of the driver-specific capability
+// > attributes like "media-col-database", "sides-supported", and so forth.
+// > Use the @link papplPrinterSetDriverDefaults@ or
+// > @link papplPrinterSetReadyMedia@` functions to efficiently change the
+// > "xxx-default" or "xxx-ready" values, respectively.
 //
 
-void
-papplPrinterSetPrintDriverData(
-    pappl_printer_t      *printer,	// I - Printer
-    pappl_pdriver_data_t *data,		// I - Driver data
-    ipp_t                *attrs)	// I - Additional capability attributes or `NULL` for none
+bool					// O - `true` on success, `false` on failure
+papplPrinterSetDriverData(
+    pappl_printer_t        *printer,	// I - Printer
+    pappl_pr_driver_data_t *data,	// I - Driver data
+    ipp_t                  *attrs)	// I - Additional capability attributes or `NULL` for none
 {
   if (!printer || !data)
-    return;
+    return (false);
+
+  // Validate data...
+  if (!validate_defaults(printer, data) || !validate_driver(printer, data) || !validate_ready(printer, data->num_source, data->media_ready))
+    return (false);
 
   pthread_rwlock_wrlock(&printer->rwlock);
 
@@ -158,28 +161,138 @@ papplPrinterSetPrintDriverData(
 
   pthread_rwlock_unlock(&printer->rwlock);
 }
-void
-papplPrinterSetScanDriverData(
-    pappl_printer_t      *printer,	// I - Printer
-    pappl_sdriver_data_t *data,		// I - Driver data
-    ipp_t                *attrs)	// I - Additional capability attributes or `NULL` for none
+
+//
+// 'papplPrinterSetDriverDefaults()' - Set the default print option values.
+//
+// This function validates and sets the printer's default print options.
+//
+// > Note: Unlike @link papplPrinterSetPrintDriverData@, this function only
+// > changes the "xxx_default" members of the driver data and is considered
+// > lightweight.
+//
+
+bool					// O - `true` on success or `false` on failure
+papplPrinterSetDriverDefaults(
+    pappl_printer_t        *printer,	// I - Printer
+    pappl_pr_driver_data_t *data,	// I - Driver data
+    int                    num_vendor,	// I - Number of vendor options
+    cups_option_t          *vendor)	// I - Vendor options
 {
+  int			i;		// Looping var
+  const char		*value;		// Vendor value
+  char			defname[128],	// xxx-default name
+			supname[128];	// xxx-supported name
+  ipp_attribute_t	*supported;	// xxx-supported attribute
+
+
   if (!printer || !data)
-    return;
+    return (false);
+
+  if (!validate_defaults(printer, data))
+    return (false);
 
   pthread_rwlock_wrlock(&printer->rwlock);
 
-  // Copy driver data to scanner
-  memcpy(&printer->psdriver.driver_data, data, sizeof(printer->psdriver.driver_data));
+  // Copy xxx_default values...
+  printer->driver_data.color_default          = data->color_default;
+  printer->driver_data.content_default        = data->content_default;
+  printer->driver_data.quality_default        = data->quality_default;
+  printer->driver_data.scaling_default        = data->scaling_default;
+  printer->driver_data.sides_default          = data->sides_default;
+  printer->driver_data.x_default              = data->x_default;
+  printer->driver_data.y_default              = data->y_default;
+  printer->driver_data.media_default          = data->media_default;
+  printer->driver_data.speed_default          = data->speed_default;
+  printer->driver_data.darkness_default       = data->darkness_default;
+  printer->driver_data.bin_default            = data->bin_default;
+  printer->driver_data.mode_configured        = data->mode_configured;
+  printer->driver_data.tear_offset_configured = data->tear_offset_configured;
+  printer->driver_data.darkness_configured    = data->darkness_configured;
+  printer->driver_data.identify_default       = data->identify_default;
 
-  // Create scanner (capability) attributes based on driver data...
-  ippDelete(printer->driver_attrs);
-  printer->driver_attrs = make_attrs_scan(printer->system, &printer->psdriver.driver_data);
+  // Copy any vendor-specific xxx-default values...
+  for (i = 0; i < data->num_vendor; i ++)
+  {
+    if ((value = cupsGetOption(data->vendor[i], num_vendor, vendor)) == NULL)
+      continue;
 
-  if (attrs)
-    ippCopyAttributes(printer->driver_attrs, attrs, 0, NULL, NULL);
+    snprintf(defname, sizeof(defname), "%s-default", data->vendor[i]);
+    snprintf(supname, sizeof(supname), "%s-supported", data->vendor[i]);
+
+    ippDeleteAttribute(printer->driver_attrs, ippFindAttribute(printer->driver_attrs, defname, IPP_TAG_ZERO));
+
+    if ((supported = ippFindAttribute(printer->driver_attrs, supname, IPP_TAG_ZERO)) != NULL)
+    {
+      switch (ippGetValueTag(supported))
+      {
+        case IPP_TAG_INTEGER :
+        case IPP_TAG_RANGE :
+            ippAddInteger(printer->driver_attrs, IPP_TAG_PRINTER, IPP_TAG_INTEGER, defname, atoi(value));
+            break;
+
+        case IPP_TAG_BOOLEAN :
+            ippAddBoolean(printer->driver_attrs, IPP_TAG_PRINTER, defname, !strcmp(value, "true") || !strcmp(value, "on"));
+            break;
+
+	case IPP_TAG_KEYWORD :
+	    ippAddString(printer->driver_attrs, IPP_TAG_PRINTER, IPP_TAG_KEYWORD, defname, NULL, value);
+	    break;
+
+        default :
+            papplLogPrinter(printer, PAPPL_LOGLEVEL_ERROR, "Driver '%s' attribute syntax not supported, only boolean, integer, keyword, and rangeOfInteger are supported.", supname);
+            break;
+      }
+    }
+    else
+    {
+      // Default to simple text values...
+      ippAddString(printer->driver_attrs, IPP_TAG_PRINTER, IPP_TAG_TEXT, defname, NULL, value);
+    }
+  }
+
+  printer->config_time = time(NULL);
 
   pthread_rwlock_unlock(&printer->rwlock);
+
+  _papplSystemConfigChanged(printer->system);
+
+  return (true);
+}
+
+
+//
+// 'papplPrinterSetReadyMedia()' - Set the ready (loaded) media.
+//
+// This function validates and sets the printer's ready (loaded) media.
+//
+
+bool					// O - `true` on success or `false` on failure
+papplPrinterSetReadyMedia(
+    pappl_printer_t   *printer,		// I - Printer
+    int               num_ready,	// I - Number of ready media
+    pappl_media_col_t *ready)		// I - Array of ready media
+{
+  if (!printer || num_ready <= 0 || !ready)
+    return (false);
+
+  if (!validate_ready(printer, num_ready, ready))
+    return (false);
+
+  pthread_rwlock_wrlock(&printer->rwlock);
+
+  if (num_ready > printer->driver_data.num_source)
+    num_ready = printer->driver_data.num_source;
+
+  memset(printer->driver_data.media_ready, 0, sizeof(printer->driver_data.media_ready));
+  memcpy(printer->driver_data.media_ready, ready, (size_t)num_ready * sizeof(pappl_media_col_t));
+  printer->state_time = time(NULL);
+
+  pthread_rwlock_unlock(&printer->rwlock);
+
+  _papplSystemConfigChanged(printer->system);
+
+  return (true);
 }
 
 
@@ -188,8 +301,9 @@ papplPrinterSetScanDriverData(
 //
 
 static ipp_t *				// O - Driver attributes
-make_attrs(pappl_system_t       *system,// I - System
-           pappl_pdriver_data_t *data)	// I - Driver data
+make_attrs(
+    pappl_system_t         *system,	// I - System
+    pappl_pr_driver_data_t *data)	// I - Driver data
 {
   ipp_t			*attrs;		// Driver attributes
   unsigned		bit;		// Current bit value
@@ -398,7 +512,7 @@ make_attrs(pappl_system_t       *system,// I - System
   for (num_values = 0, bit = PAPPL_LABEL_MODE_APPLICATOR; bit <= PAPPL_LABEL_MODE_TEAR_OFF; bit *= 2)
   {
     if (data->mode_supported & bit)
-      svalues[num_values ++] = _papplLabelModeString(bit);
+      svalues[num_values ++] = _papplLabelModeString((pappl_label_mode_t)bit);
   }
 
   if (num_values > 0)
@@ -641,7 +755,7 @@ make_attrs(pappl_system_t       *system,// I - System
     for (num_values = 0, bit = PAPPL_MEDIA_TRACKING_CONTINUOUS; bit <= PAPPL_MEDIA_TRACKING_WEB; bit *= 2)
     {
       if (data->tracking_supported & bit)
-        svalues[num_values ++] = _papplMediaTrackingString(bit);
+        svalues[num_values ++] = _papplMediaTrackingString((pappl_media_tracking_t)bit);
     }
 
     ippAddStrings(attrs, IPP_TAG_PRINTER, IPP_CONST_TAG(IPP_TAG_KEYWORD), "media-tracking-supported", num_values, NULL, svalues);
@@ -1033,4 +1147,290 @@ make_attrs(pappl_system_t       *system,// I - System
   }
 
   return (attrs);
+}
+
+
+//
+// 'validate_defaults()' - Validate the printing defaults and supported values.
+//
+
+static bool				// O - `true` if valid, `false` otherwise
+validate_defaults(
+    pappl_printer_t        *printer,	// I - Printer
+    pappl_pr_driver_data_t *data)	// I - Defaults/supported values
+{
+  bool		ret = true;		// Return value
+  int		i;			// Looping var
+  int		max_width = 0,		// Maximum media width
+		max_length = 0,		// Maximum media length
+		min_width = 99999999,	// Minimum media width
+		min_length = 99999999;	// Minimum media length
+  pwg_media_t	*pwg;			// PWG media size
+
+
+  if (!(data->identify_default & data->identify_supported) && data->identify_supported)
+  {
+    papplLogPrinter(printer, PAPPL_LOGLEVEL_ERROR, "Unsupported identify-actions-default=0x%04x", data->identify_default);
+    ret = false;
+  }
+  else if (data->identify_supported)
+  {
+    papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG, "identify-actions-default=0x%04x", data->identify_default);
+  }
+
+  for (i = 0; i < data->num_media; i ++)
+  {
+    if (!strcmp(data->media[i], data->media_default.size_name))
+      break;
+
+    if ((pwg = pwgMediaForPWG(data->media[i])) != NULL)
+    {
+      if (pwg->width > max_width)
+        max_width = pwg->width;
+      if (pwg->width < min_width)
+        min_width = pwg->width;
+
+      if (pwg->length > max_length)
+        max_length = pwg->length;
+      if (pwg->length > max_length)
+        max_length = pwg->length;
+    }
+  }
+
+  if (i < data->num_media || (data->media_default.size_width >= min_width && data->media_default.size_width <= max_width && data->media_default.size_length >= min_length && data->media_default.size_length <= max_length))
+  {
+    papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG, "media-default=%s", data->media_default.size_name);
+  }
+  else
+  {
+    papplLogPrinter(printer, PAPPL_LOGLEVEL_ERROR, "Unsupported media-default=%s", data->media_default.size_name);
+    ret = false;
+  }
+
+  papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG, "orientation-requested-default=%d(%s)", data->orient_default, ippEnumString("orientation-requested", (int)data->orient_default));
+
+  if (!(data->color_default & data->color_supported))
+  {
+    papplLogPrinter(printer, PAPPL_LOGLEVEL_ERROR, "Unsupported print-color-mode-default=%s(0x%04x)", _papplColorModeString(data->color_default), data->color_default);
+    ret = false;
+  }
+  else
+  {
+    papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG, "print-color-mode-default=%s(0x%04x)", _papplColorModeString(data->color_default), data->color_default);
+  }
+
+  papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG, "print-content-default=%s(0x%04x)", _papplContentString(data->content_default), data->content_default);
+
+  papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG, "print-quality-default=%d(%s)", (int)data->quality_default, ippEnumString("print-quality", (int)data->quality_default));
+
+  papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG, "print-scaling-default=%s(0x%04x)", _papplScalingString(data->scaling_default), data->scaling_default);
+
+  for (i = 0; i < data->num_resolution; i ++)
+  {
+    if (data->x_default == data->x_resolution[i] && data->y_default == data->y_resolution[i])
+      break;
+  }
+  if (i >= data->num_resolution)
+  {
+    papplLogPrinter(printer, PAPPL_LOGLEVEL_ERROR, "Unsupported printer-resolution-default=%dx%ddpi", data->x_default, data->y_default);
+    ret = false;
+  }
+  else
+  {
+    papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG, "printer-resolution-default=%dx%ddpi", data->x_default, data->y_default);
+  }
+
+  if (!(data->sides_default & data->sides_supported) && data->sides_supported)
+  {
+    papplLogPrinter(printer, PAPPL_LOGLEVEL_ERROR, "Unsupported sides-default=%s(0x%04x)", _papplSidesString(data->sides_default), data->sides_default);
+    ret = false;
+  }
+  else if (data->sides_supported)
+  {
+    papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG, "sides-default=%s(0x%04x)", _papplSidesString(data->sides_default), data->sides_default);
+  }
+
+  return (ret);
+}
+
+
+//
+// 'validate_driver()' - Validate the driver-specific values.
+//
+
+static bool				// O - `true` if valid, `false` otherwise
+validate_driver(
+    pappl_printer_t        *printer,	// I - Printer
+    pappl_pr_driver_data_t *data)	// I - Driver values
+{
+  bool		ret = true;		// Return value
+  int		i,			// Looping variable
+		num_icons;		// Number of printer icons
+  const char	*venptr;		// Pointer into vendor name
+  static const char * const icon_sizes[] =
+  {					// Icon sizes
+    "small-48x48",
+    "medium-128x128",
+    "large-512x512"
+  };
+
+
+  // Validate all driver fields and show debug/warning/fatal errors along the way.
+  if (data->extension)
+    papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG, "Driver uses extension data (%p) and %sdelete function.", data->extension, data->delete_cb ? "" : "no ");
+
+  if (!data->identify_cb)
+    papplLogPrinter(printer, PAPPL_LOGLEVEL_WARN, "Driver does not support identification.");
+
+  if (data->printfile_cb)
+  {
+    if (data->format)
+    {
+      papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG, "Driver supports raw printing of '%s' files.", data->format);
+    }
+    else
+    {
+      papplLogPrinter(printer, PAPPL_LOGLEVEL_ERROR, "Driver supports raw printing but hasn't set the format.");
+      ret = false;
+    }
+  }
+
+  if (!data->rendjob_cb || !data->rendpage_cb || !data->rstartjob_cb || !data->rstartpage_cb || !data->rwriteline_cb)
+  {
+    papplLogPrinter(printer, PAPPL_LOGLEVEL_ERROR, "Driver does not provide required raster printing callbacks.");
+    ret = false;
+  }
+
+  if (!data->status_cb)
+    papplLogPrinter(printer, PAPPL_LOGLEVEL_WARN, "Driver does not support status updates.");
+
+  if (!data->testpage_cb)
+    papplLogPrinter(printer, PAPPL_LOGLEVEL_WARN, "Driver does not support a self-test page.");
+
+  if (!data->make_and_model[0])
+  {
+    papplLogPrinter(printer, PAPPL_LOGLEVEL_ERROR, "Driver does not provide a make_and_model string.");
+    ret = false;
+  }
+
+  if (data->ppm <= 0)
+  {
+    papplLogPrinter(printer, PAPPL_LOGLEVEL_ERROR, "Driver does not provide a valid ppm value (%d).", data->ppm);
+    ret = false;
+  }
+  else
+  {
+    papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG, "Driver reports ppm %d.", data->ppm);
+  }
+
+  if (data->ppm_color < 0 || data->ppm_color > data->ppm)
+  {
+    papplLogPrinter(printer, PAPPL_LOGLEVEL_ERROR, "Driver does not provide a valid ppm_color value (%d).", data->ppm_color);
+    ret = false;
+  }
+  else
+  {
+    papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG, "Driver reports ppm_color %d.", data->ppm_color);
+  }
+
+  for (i = 0, num_icons = 0; i < 3; i ++)
+  {
+    if (data->icons[i].filename[0])
+    {
+      papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG, "Driver provides %s icon in file '%s'.", icon_sizes[i], data->icons[i].filename);
+      num_icons ++;
+    }
+    else if (data->icons[i].data && data->icons[i].datalen > 0)
+    {
+      papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG, "Driver provides %s icon in memory (%u bytes).", icon_sizes[i], (unsigned)data->icons[i].datalen);
+      num_icons ++;
+    }
+  }
+
+  if (num_icons == 0)
+  {
+    papplLogPrinter(printer, PAPPL_LOGLEVEL_WARN, "Driver does not provide printer icons, using defaults.");
+  }
+
+  if (!data->raster_types)
+  {
+    papplLogPrinter(printer, PAPPL_LOGLEVEL_ERROR, "Driver does not provide required raster types.");
+    ret = false;
+  }
+
+  if (data->num_resolution <= 0)
+  {
+    papplLogPrinter(printer, PAPPL_LOGLEVEL_ERROR, "Driver does not provide required raster resolutions.");
+    ret = false;
+  }
+  else
+  {
+    for (i = 0; i < data->num_resolution; i ++)
+    {
+      if (data->x_resolution[i] <= 0 || data->y_resolution[i] <= 0)
+      {
+	papplLogPrinter(printer, PAPPL_LOGLEVEL_ERROR, "Invalid driver raster resolution %dx%ddpi.", data->x_resolution[i], data->y_resolution[i]);
+	ret = false;
+      }
+    }
+  }
+
+  if (data->left_right < 0)
+  {
+    papplLogPrinter(printer, PAPPL_LOGLEVEL_ERROR, "Invalid driver left/right margins value %d.", data->left_right);
+    ret = false;
+  }
+
+  if (data->bottom_top < 0)
+  {
+    papplLogPrinter(printer, PAPPL_LOGLEVEL_ERROR, "Invalid driver bottom/top margins value %d.", data->bottom_top);
+    ret = false;
+  }
+
+  for (i = 0; i < data->num_media; i ++)
+  {
+    if (!pwgMediaForPWG(data->media[i]))
+    {
+      papplLogPrinter(printer, PAPPL_LOGLEVEL_ERROR, "Invalid driver media value '%s'.", data->media[i]);
+      ret = false;
+    }
+  }
+
+  for (i = 0; i < data->num_vendor; i ++)
+  {
+    for (venptr = data->vendor[i]; *venptr; venptr ++)
+    {
+      int vench = *venptr & 255;	// Current character
+
+      if (!isalnum(vench) && vench != '-' && vench != '_')
+        break;
+    }
+
+    if (*venptr)
+    {
+      papplLogPrinter(printer, PAPPL_LOGLEVEL_ERROR, "Invalid vendor attribute name '%s'.", data->vendor[i]);
+      ret = false;
+    }
+  }
+
+  return (ret);
+}
+
+
+//
+// 'validate_ready()' - Validate the ready media values.
+//
+
+static bool				// O - `true` if valid, `false` otherwise
+validate_ready(
+    pappl_printer_t   *printer,		// I - Printer
+    int               num_ready,	// I - Number of ready media values
+    pappl_media_col_t *ready)		// I - Ready media values
+{
+  // TODO: Validate media-ready values (Issue #94)
+  (void)printer;
+  (void)num_ready;
+  (void)ready;
+
+  return (true);
 }
