@@ -73,9 +73,11 @@ typedef enum _pappl_snmp_query_e	// SNMP query request IDs for each field
 #if defined(HAVE_DNSSD) || defined(HAVE_AVAHI)
 #  ifdef HAVE_DNSSD
 static void 		pappl_dnssd_browse_cb(DNSServiceRef sdRef, DNSServiceFlags flags, uint32_t interfaceIndex, DNSServiceErrorType errorCode, const char *serviceName, const char *regtype, const char *replyDomain, void *context);
+static void		pappl_dnssd_query_cb(DNSServiceRef sdRef, DNSServiceFlags flags, uint32_t interfaceIndex, DNSServiceErrorType errorCode, const char *fullName, uint16_t rrtype, uint16_t rrclass, uint16_t rdlen, const void *rdata, uint32_t ttl, void *context);
 static void		pappl_dnssd_resolve_cb(DNSServiceRef sdRef, DNSServiceFlags flags, uint32_t interfaceIndex, DNSServiceErrorType errorCode, const char *fullname, const char *hosttarget, uint16_t port, uint16_t txtLen, const unsigned char *txtRecord, void *context);
 #  else
 static void		pappl_dnssd_browse_cb(AvahiServiceBrowser *browser, AvahiIfIndex interface, AvahiProtocol protocol, AvahiBrowserEvent event, const char *serviceName, const char *serviceType, const char *replyDomain, AvahiLookupResultFlags flags, void *context);
+static void		pappl_dnssd_query_cb(AvahiRecordBrowser *browser, AvahiIfIndex interface, AvahiProtocol protocol, AvahiBrowserEvent event, const char *name, uint16_t rrclass, uint16_t rrtype, const void *rdata, size_t rdlen, AvahiLookupResultFlags flags, void *context);
 static void		pappl_dnssd_resolve_cb(AvahiServiceResolver *resolver, AvahiIfIndex interface, AvahiProtocol protocol, AvahiResolverEvent event, const char *name, const char *type, const char *domain, const char *host_name, const AvahiAddress *address, uint16_t port, AvahiStringList *txt, AvahiLookupResultFlags flags, void *context);
 #  endif // HAVE_DNSSD
 static int		pappl_dnssd_compare_devices(_pappl_dns_sd_dev_t *a, _pappl_dns_sd_dev_t *b);
@@ -91,10 +93,11 @@ static bool		pappl_snmp_find(pappl_device_cb_t cb, void *data, _pappl_socket_t *
 static void		pappl_snmp_free(_pappl_snmp_dev_t *d);
 static http_addrlist_t	*pappl_snmp_get_interface_addresses(void);
 static bool		pappl_snmp_list(pappl_device_cb_t cb, void *data, pappl_deverror_cb_t err_cb, void *err_data);
-static bool		pappl_snmp_open_cb(const char *device_uri, const char *device_id, void *data);
+static bool		pappl_snmp_open_cb(const char *device_info, const char *device_uri, const char *device_id, void *data);
 static void		pappl_snmp_read_response(cups_array_t *devices, int fd, pappl_deverror_cb_t err_cb, void *err_data);
 
 static void		pappl_socket_close(pappl_device_t *device);
+static char		*pappl_socket_getid(pappl_device_t *device, char *buffer, size_t bufsize);
 static bool		pappl_socket_open(pappl_device_t *device, const char *device_uri, const char *name);
 static ssize_t		pappl_socket_read(pappl_device_t *device, void *buffer, size_t bytes);
 static pappl_preason_t	pappl_socket_status(pappl_device_t *device);
@@ -109,10 +112,10 @@ void
 _papplDeviceAddNetworkSchemes(void)
 {
 #if defined(HAVE_DNSSD) || defined(HAVE_AVAHI)
-  papplDeviceAddScheme("dnssd", PAPPL_DTYPE_DNS_SD, pappl_dnssd_list, pappl_socket_open, pappl_socket_close, pappl_socket_read, pappl_socket_write, pappl_socket_status);
+  papplDeviceAddScheme("dnssd", PAPPL_DEVTYPE_DNS_SD, pappl_dnssd_list, pappl_socket_open, pappl_socket_close, pappl_socket_read, pappl_socket_write, pappl_socket_status, pappl_socket_getid);
 #endif // HAVE_DNSSD || HAVE_AVAHI
-  papplDeviceAddScheme("snmp", PAPPL_DTYPE_DNS_SD, pappl_snmp_list, pappl_socket_open, pappl_socket_close, pappl_socket_read, pappl_socket_write, pappl_socket_status);
-  papplDeviceAddScheme("socket", PAPPL_DTYPE_DNS_SD, NULL, pappl_socket_open, pappl_socket_close, pappl_socket_read, pappl_socket_write, pappl_socket_status);
+  papplDeviceAddScheme("snmp", PAPPL_DEVTYPE_SNMP, pappl_snmp_list, pappl_socket_open, pappl_socket_close, pappl_socket_read, pappl_socket_write, pappl_socket_status, pappl_socket_getid);
+  papplDeviceAddScheme("socket", PAPPL_DEVTYPE_SOCKET, NULL, pappl_socket_open, pappl_socket_close, pappl_socket_read, pappl_socket_write, pappl_socket_status, pappl_socket_getid);
 }
 
 
@@ -133,11 +136,9 @@ pappl_dnssd_browse_cb(
     const char          *replyDomain,	// I - Service domain
     void                *context)	// I - Devices array
 {
-  _PAPPL_DEBUG("DEBUG: pappl_browse_cb(sdRef=%p, flags=%x, "
-                  "interfaceIndex=%d, errorCode=%d, serviceName=\"%s\", "
-		  "replyDomain=\"%s\", context=%p)\n",
-          sdRef, flags, interfaceIndex, errorCode,
-	  serviceName, replyDomain, context);
+  _PAPPL_DEBUG("DEBUG: pappl_browse_cb(sdRef=%p, flags=%x, interfaceIndex=%d, errorCode=%d, serviceName=\"%s\", regtype=\"%s\", replyDomain=\"%s\", context=%p)\n", sdRef, flags, interfaceIndex, errorCode, serviceName, regtype, replyDomain, context);
+
+  (void)regtype;
 
   // Only process "add" data...
   if (errorCode == kDNSServiceErr_NoError && (flags & kDNSServiceFlagsAdd))
@@ -262,6 +263,15 @@ pappl_dnssd_get_device(
 
   device->fullName = strdup(fullName);
 
+  // Query the TXT record for the device ID and make and model...
+#ifdef HAVE_DNSSD
+  device->ref = _papplDNSSDInit(NULL);
+
+  DNSServiceQueryRecord(&(device->ref), kDNSServiceFlagsShareConnection, 0, device->fullName, kDNSServiceType_TXT, kDNSServiceClass_IN, pappl_dnssd_query_cb, device);
+#else
+  device->ref = avahi_record_browser_new(_papplDNSSDInit(NULL), AVAHI_IF_UNSPEC, AVAHI_PROTO_UNSPEC, device->fullName, AVAHI_DNS_CLASS_IN, AVAHI_DNS_TYPE_TXT, 0, pappl_dnssd_query_cb, device);
+#endif /* HAVE_AVAHI */
+
   return (device);
 }
 
@@ -280,7 +290,9 @@ pappl_dnssd_list(
   bool			ret = false;	// Return value
   cups_array_t		*devices;	// DNS-SD devices
   _pappl_dns_sd_dev_t	*device;	// Current DNS-SD device
-  char			device_uri[1024];
+  char			device_name[1024],
+					// Network device name
+			device_uri[1024];
 					// Network device URI
   int			last_count,	// Last number of devices
 			timeout;	// Timeout counter
@@ -336,12 +348,14 @@ pappl_dnssd_list(
   // Do the callback for each of the devices...
   for (device = (_pappl_dns_sd_dev_t *)cupsArrayFirst(devices); device; device = (_pappl_dns_sd_dev_t *)cupsArrayNext(devices))
   {
-    if (device->uuid)
-      httpAssembleURIf(HTTP_URI_CODING_ALL, device_uri, sizeof(device_uri), "socket", NULL, device->fullName, 0, "/?uuid=%s", device->uuid);
-    else
-      httpAssembleURI(HTTP_URI_CODING_ALL, device_uri, sizeof(device_uri), "socket", NULL, device->fullName, 0, "/");
+    snprintf(device_name, sizeof(device_name), "%s (DNS-SD Network Printer)", device->name);
 
-    if ((*cb)(device_uri, device->device_id, data))
+    if (device->uuid)
+      httpAssembleURIf(HTTP_URI_CODING_ALL, device_uri, sizeof(device_uri), "dnssd", NULL, device->fullName, 0, "/?uuid=%s", device->uuid);
+    else
+      httpAssembleURI(HTTP_URI_CODING_ALL, device_uri, sizeof(device_uri), "dnssd", NULL, device->fullName, 0, "/");
+
+    if ((*cb)(device_name, device_uri, device->device_id, data))
     {
       ret = true;
       break;
@@ -366,6 +380,206 @@ pappl_dnssd_list(
 
 
 //
+// 'pappl_dnssd_query_cb()' - Query a DNS-SD service.
+//
+
+#  ifdef HAVE_DNSSD
+static void
+pappl_dnssd_query_cb(
+    DNSServiceRef       sdRef,		// I - Service reference
+    DNSServiceFlags     flags,		// I - Data flags
+    uint32_t            interfaceIndex,	// I - Interface (unused)
+    DNSServiceErrorType errorCode,	// I - Error, if any
+    const char          *fullName,	// I - Full service name
+    uint16_t            rrtype,		// I - Record type
+    uint16_t            rrclass,	// I - Record class
+    uint16_t            rdlen,		// I - Length of record data
+    const void          *rdata,		// I - Record data
+    uint32_t            ttl,		// I - Time-to-live
+    void                *context)	// I - Device
+#  else
+static void
+pappl_dnssd_query_cb(
+    AvahiRecordBrowser     *browser,	// I - Record browser */
+    AvahiIfIndex           interfaceIndex,
+					// I - Interface index (unused)
+    AvahiProtocol          protocol,	// I - Network protocol (unused)
+    AvahiBrowserEvent      event,	// I - What happened?
+    const char             *fullName,	// I - Service name
+    uint16_t               rrclass,	// I - Record clasa
+    uint16_t               rrtype,	// I - Record type
+    const void             *rdata,	// I - TXT record
+    size_t                 rdlen,	// I - Length of TXT record
+    AvahiLookupResultFlags flags,	// I - Flags
+    void                   *context)	// I - Device
+#  endif // HAVE_DNSSD
+{
+  char		*ptr;			// Pointer into string
+  _pappl_dns_sd_dev_t	*device = (_pappl_dns_sd_dev_t *)context;
+					// Device
+  const uint8_t	*data,			// Pointer into data
+		*datanext,		// Next key/value pair
+		*dataend;		// End of entire TXT record
+  uint8_t	datalen;		// Length of current key/value pair
+  char		key[256],		// Key string
+		value[256],		// Value string
+		cmd[256],		// usb_CMD string
+		mdl[256],		// usb_MDL string
+		mfg[256],		// usb_MFG string
+		pdl[256],		// pdl string
+		product[256],		// product string
+		ty[256],		// ty string
+		device_id[1024];	// 1284 device ID */
+
+
+#  ifdef HAVE_DNSSD
+  // Only process "add" data...
+  if (errorCode != kDNSServiceErr_NoError || !(flags & kDNSServiceFlagsAdd))
+    return;
+
+  (void)sdRef;
+  (void)interfaceIndex;
+  (void)fullName;
+  (void)ttl;
+  (void)rrtype;
+  (void)rrclass;
+
+#  else
+  // Only process "add" data...
+  if (event != AVAHI_BROWSER_NEW)
+    return;
+
+  (void)interfaceIndex;
+  (void)protocol;
+  (void)fullName;
+  (void)rrclass;
+  (void)rrtype;
+  (void)flags;
+#  endif /* HAVE_DNSSD */
+
+  // Pull out the make and model and device ID data from the TXT record...
+  cmd[0]     = '\0';
+  mfg[0]     = '\0';
+  mdl[0]     = '\0';
+  pdl[0]     = '\0';
+  product[0] = '\0';
+  ty[0]      = '\0';
+
+  for (data = rdata, dataend = data + rdlen; data < dataend; data = datanext)
+  {
+    // Read a key/value pair starting with an 8-bit length.  Since the length is
+    // 8 bits and the size of the key/value buffers is 256, we don't need to
+    // check for overflow...
+    datalen = *data++;
+
+    if (!datalen || (data + datalen) > dataend)
+      break;
+
+    datanext = data + datalen;
+
+    for (ptr = key; data < datanext && *data != '='; data ++)
+      *ptr++ = (char)*data;
+    *ptr = '\0';
+
+    if (data < datanext && *data == '=')
+    {
+      data ++;
+
+      if (data < datanext)
+	memcpy(value, data, (size_t)(datanext - data));
+      value[datanext - data] = '\0';
+    }
+    else
+    {
+      continue;
+    }
+
+    if (!strcasecmp(key, "usb_CMD"))
+      strlcpy(cmd, value, sizeof(cmd));
+    else if (!strcasecmp(key, "usb_MDL"))
+      strlcpy(mdl, value, sizeof(mdl));
+    else if (!strcasecmp(key, "usb_MFG"))
+      strlcpy(mfg, value, sizeof(mfg));
+    else if (!strcasecmp(key, "pdl"))
+      strlcpy(pdl, value, sizeof(pdl));
+    else if (!strcasecmp(key, "product"))
+      strlcpy(product, value, sizeof(product));
+    else if (!strcasecmp(key, "ty"))
+      strlcpy(ty, value, sizeof(ty));
+  }
+
+  // Synthesize values as needed...
+  if (!cmd[0] && pdl[0])
+  {
+    int		i;			// Looping var
+    char	*cmdptr,		// Pointer into CMD value
+		*pdlptr;		// Pointer into pdl value
+    static const char * const pdls[][2] =
+    {					// MIME media type to command set mapping
+      { "application/postscript", "PS" },
+      { "application/vnd.canon-cpdl", "CPDL" },
+      { "application/vnd.canon-lips", "LIPS" },
+      { "application/vnd.hp-PCL", "PCL" },
+      { "application/vnd.hp-PCLXL", "PCLXL" },
+      { "application/vnd.ms-xpsdocument", "XPS" },
+      { "image/jpeg", "JPEG" },
+      { "image/tiff", "TIFF" }
+    };
+
+    for (i = 0, cmdptr = cmd; i < (int)(sizeof(pdls) / sizeof(pdls[0])); i ++)
+    {
+      if ((pdlptr = strstr(pdl, pdls[i][0])) != NULL)
+      {
+        if ((pdlptr == pdl || pdlptr[-1] == ',') && pdlptr[strlen(pdls[i][0])] == ',')
+        {
+          if (cmdptr > cmd && cmdptr < (cmd + sizeof(cmd) - 1))
+            *cmdptr++ = ',';
+	  strlcpy(cmdptr, pdls[i][1], sizeof(cmd) - (size_t)(cmdptr - cmd));
+	  cmdptr += strlen(cmdptr);
+        }
+      }
+    }
+  }
+
+  if (!ty[0] && product[0])
+  {
+    if (product[0] == '(')
+    {
+      strlcpy(ty, product + 1, sizeof(ty));
+      if ((ptr = product + strlen(product) - 1) >= product && *ptr == ')')
+        *ptr = '\0';
+    }
+    else
+      strlcpy(ty, product, sizeof(ty));
+  }
+
+  if (!ty[0] && mfg[0] && mdl[0])
+    snprintf(ty, sizeof(ty), "%s %s", mfg, mdl);
+
+  if (!mfg[0] && ty[0])
+  {
+    strlcpy(mfg, ty, sizeof(mfg));
+    if ((ptr = strchr(mfg, ' ')) != NULL)
+      *ptr = '\0';
+  }
+
+  if (!mdl[0] && ty[0])
+  {
+    if ((ptr = strchr(ty, ' ')) != NULL)
+      strlcpy(mdl, ptr + 1, sizeof(mdl));
+    else
+      strlcpy(mdl, ty, sizeof(mdl));
+  }
+
+  snprintf(device_id, sizeof(device_id), "MFG:%s;MDL:%s;CMD:%s;", mfg, mdl, cmd);
+
+  // Save the make and model and IEEE-1284 device ID...
+  device->device_id      = strdup(device_id);
+  device->make_and_model = strdup(ty);
+}
+
+
+//
 // 'pappl_dnssd_resolve_cb()' - Resolve a DNS-SD service.
 //
 
@@ -383,6 +597,12 @@ pappl_dnssd_resolve_cb(
     const unsigned char *txtRecord,	// I - TXT record
     void                *context)	// I - Device
 {
+  (void)sdRef;
+  (void)interfaceIndex;
+  (void)fullname;
+  (void)txtLen;
+  (void)txtRecord;
+
   if (errorCode == kDNSServiceErr_NoError && (flags & kDNSServiceFlagsAdd))
   {
     _pappl_socket_t *sock = (_pappl_socket_t *)context;
@@ -581,11 +801,33 @@ pappl_snmp_find(
   // Report all of the devices we found...
   for (cur_device = (_pappl_snmp_dev_t *)cupsArrayFirst(devices); cur_device; cur_device = (_pappl_snmp_dev_t *)cupsArrayNext(devices))
   {
+    char	info[256];		// Device description
+    int		num_did;		// Number of device ID keys/values
+    cups_option_t *did;			// Device ID keys/values
+    const char	*make,			// Manufacturer
+		*model;			// Model name
+
     // Skip LPD (port 515) and IPP (port 631) since they can't be raw sockets...
     if (cur_device->port == 515 || cur_device->port == 631)
       continue;
 
-    if ((*cb)(cur_device->uri, cur_device->device_id, data))
+    num_did = papplDeviceParseID(cur_device->device_id, &did);
+
+    if ((make = cupsGetOption("MANUFACTURER", num_did, did)) == NULL)
+      if ((make = cupsGetOption("MFG", num_did, did)) == NULL)
+        if ((make = cupsGetOption("MFGR", num_did, did)) == NULL)
+          make = "Unknown";
+
+    if ((model = cupsGetOption("MODEL", num_did, did)) == NULL)
+      if ((model = cupsGetOption("MDL", num_did, did)) == NULL)
+        model = "Printer";
+
+    if (!strcmp(make, "HP") && !strncmp(model, "HP ", 3))
+      snprintf(info, sizeof(info), "%s (Network Printer %s)", model, cur_device->uri + 7);
+    else
+      snprintf(info, sizeof(info), "%s %s (Network Printer %s)", make, model, cur_device->uri + 7);
+
+    if ((*cb)(info, cur_device->uri, cur_device->device_id, data))
     {
       // Save the address and port...
       char	address_str[256];	// IP address as a string
@@ -701,6 +943,7 @@ pappl_snmp_list(
 
 static bool				// O - `true` on match, `false` otherwise
 pappl_snmp_open_cb(
+    const char *device_info,		// I - Device description
     const char *device_uri,		// I - This device's URI
     const char *device_id,		// I - IEEE-1284 Device ID
     void       *data)			// I - URI we are looking for
@@ -708,7 +951,7 @@ pappl_snmp_open_cb(
   bool match = !strcmp(device_uri, (const char *)data);
 					// Does this match?
 
-  _PAPPL_DEBUG("pappl_snmp_open_cb(device_uri=\"%s\", device_id=\"%s\", user_data=\"%s\") = %s\n", device_uri, device_id, (char *)data, match ? "true" : "false");
+  _PAPPL_DEBUG("pappl_snmp_open_cb(device_info=\"%s\", device_uri=\"%s\", device_id=\"%s\", user_data=\"%s\") = %s\n", device_info, device_uri, device_id, (char *)data, match ? "true" : "false");
 
   return (match);
 }
@@ -889,6 +1132,25 @@ pappl_socket_close(
 
 
 //
+// 'pappl_socket_getid()' - Get the current IEEE-1284 device ID via SNMP.
+//
+
+static char *				// O - Device ID or `NULL` on error
+pappl_socket_getid(
+    pappl_device_t *device,		// I - Device
+    char           *buffer,		// I - Buffer
+    size_t         bufsize)		// I - Size of buffer
+{
+  // TODO: Implement network query of IEEE-1284 device ID (Issue #95)
+  (void)device;
+  (void)buffer;
+  (void)bufsize;
+
+  return (NULL);
+}
+
+
+//
 // 'pappl_socket_open()' - Open a network socket.
 //
 
@@ -896,7 +1158,7 @@ static bool				// O - `true` on success, `false` on failure
 pappl_socket_open(
     pappl_device_t *device,		// I - Device
     const char     *device_uri,		// I - Device URI
-    const char     *name)		// I - Job name
+    const char     *job_name)		// I - Job name
 {
   _pappl_socket_t	*sock;		// Socket device
   char			scheme[32],	// URI scheme
@@ -907,6 +1169,8 @@ pappl_socket_open(
   int			port;		// Port number
   char			port_str[32];	// String for port number
 
+
+  (void)job_name;
 
   // Allocate memory for the socket...
   if ((sock = (_pappl_socket_t *)calloc(1, sizeof(_pappl_socket_t))) == NULL)
@@ -926,7 +1190,7 @@ pappl_socket_open(
     // DNS-SD discovered device
 #if defined(HAVE_DNSSD) || defined(HAVE_AVAHI)
     int			i;		// Looping var
-    char		name[256],	// Service name
+    char		srvname[256],	// Service name
 			*type,		// Service type
 			*domain;	// Domain
     _pappl_dns_sd_t	master;		// DNS-SD context
@@ -948,13 +1212,13 @@ pappl_socket_open(
       *type ++ = '\0';
 
       // Unescape the service name...
-      pappl_dnssd_unescape(name, host, sizeof(name));
+      pappl_dnssd_unescape(srvname, host, sizeof(srvname));
 
       master = _papplDNSSDInit(NULL);
 
 #  ifdef HAVE_DNSSD
       resolver = master;
-      if ((error = DNSServiceResolve(&resolver, kDNSServiceFlagsShareConnection, 0, name, type, domain, (DNSServiceResolveReply)pappl_dnssd_resolve_cb, sock)) != kDNSServiceErr_NoError)
+      if ((error = DNSServiceResolve(&resolver, kDNSServiceFlagsShareConnection, 0, srvname, type, domain, (DNSServiceResolveReply)pappl_dnssd_resolve_cb, sock)) != kDNSServiceErr_NoError)
       {
 	papplDeviceError(device, "Unable to resolve '%s': %s", device_uri, _papplDNSSDStrError(error));
 	goto error;
@@ -962,7 +1226,7 @@ pappl_socket_open(
 #  else
       _papplDNSSDLock();
 
-      if ((resolver = avahi_service_resolver_new(master, AVAHI_IF_UNSPEC, AVAHI_PROTO_UNSPEC, name, type, domain, AVAHI_PROTO_UNSPEC, 0, (AvahiServiceResolverCallback)pappl_dnssd_resolve_cb, sock)) == NULL)
+      if ((resolver = avahi_service_resolver_new(master, AVAHI_IF_UNSPEC, AVAHI_PROTO_UNSPEC, srvname, type, domain, AVAHI_PROTO_UNSPEC, 0, (AvahiServiceResolverCallback)pappl_dnssd_resolve_cb, sock)) == NULL)
       {
 	papplDeviceError(device, "Unable to resolve '%s'.", device_uri);
 	_papplDNSSDUnlock();
@@ -1052,11 +1316,28 @@ pappl_socket_read(
 {
   _pappl_socket_t	*sock;		// Socket device
   ssize_t		count;		// Total bytes read
+  struct pollfd		data;		// poll() data
+  int			nfds;		// poll() return value
 
 
   if ((sock = papplDeviceGetData(device)) == NULL)
     return (-1);
 
+  // Only read if we have data to read within 100ms...
+  data.fd      = sock->fd;
+  data.events  = POLLIN;
+  data.revents = 0;
+
+  while ((nfds = poll(&data, 1, 100)) < 0)
+  {
+    if (errno != EINTR && errno != EAGAIN)
+      break;
+  }
+
+  if (nfds < 1 || !(data.revents & POLLIN))
+    return (-1);
+
+  // Read data from the socket, protecting against signals and busy kernels...
   while ((count = read(sock->fd, buffer, bytes)) < 0)
   {
     if (errno != EINTR && errno != EAGAIN)

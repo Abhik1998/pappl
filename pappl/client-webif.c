@@ -19,6 +19,16 @@
 //
 // 'papplClientGetCookie()' - Get a cookie from the client.
 //
+// This function gets a HTTP "cookie" value from the client request.  `NULL`
+// is returned if no cookie has been set by a prior request, or if the user has
+// disabled or removed the cookie.
+//
+// Use the @link papplClientSetCookie@ function to set a cookie in a response
+// to a request.
+//
+// > Note: Cookies set with @link papplClientSetCookie@ will not be available to
+// > this function until the following request.
+//
 
 char *					// O - Cookie value or `NULL` if not set
 papplClientGetCookie(
@@ -109,7 +119,16 @@ papplClientGetCookie(
 
 
 //
-// 'papplClientGetForm()' - Get GET/POST form data from the web client.
+// 'papplClientGetForm()' - Get form data from the web client.
+//
+// For HTTP GET requests, the form data is collected from the request URI.  For
+// HTTP POST requests, the form data is read from the client.
+//
+// The returned form values must be freed using the @code cupsFreeOptions@
+// function.
+//
+// > Note: Because the form data is read from the client connection, this
+// > function can only be called once per request.
 //
 
 int					// O - Number of form variables read
@@ -156,7 +175,7 @@ papplClientGetForm(
     *form         = NULL;
     initial_state = httpGetState(client->http);
 
-    for (bodyptr = body, bodyend = body + sizeof(body); (bytes = httpRead2(client->http, bodyptr, bodyend - bodyptr)) > 0; bodyptr += bytes)
+    for (bodyptr = body, bodyend = body + sizeof(body); (bytes = httpRead2(client->http, bodyptr, (size_t)(bodyend - bodyptr))) > 0; bodyptr += bytes)
     {
       body_size += (size_t)bytes;
 
@@ -207,7 +226,7 @@ papplClientGetForm(
 	  ch = ' ';
 
 	if (nameptr < (name + sizeof(name) - 1))
-	  *nameptr++ = ch;
+	  *nameptr++ = (char)ch;
       }
       *nameptr = '\0';
 
@@ -238,7 +257,7 @@ papplClientGetForm(
 	  ch = ' ';
 
 	if (valptr < (value + sizeof(value) - 1))
-	  *valptr++ = ch;
+	  *valptr++ = (char)ch;
       }
       *valptr = '\0';
 
@@ -296,7 +315,7 @@ papplClientGetForm(
 	  break;
 	}
 
-	for (bend = bodyend - blen, ptr = memchr(bodyptr, '\r', bend - bodyptr); ptr; ptr = memchr(ptr + 1, '\r', bend - ptr - 1))
+	for (bend = bodyend - blen, ptr = memchr(bodyptr, '\r', (size_t)(bend - bodyptr)); ptr; ptr = memchr(ptr + 1, '\r', (size_t)(bend - ptr - 1)))
 	{
 	  // Check for boundary string...
 	  if (!memcmp(ptr, bstring, blen))
@@ -368,8 +387,14 @@ papplClientGetForm(
 //
 // 'papplClientHTMLAuthorize()' - Handle authorization for the web interface.
 //
-// IPP operation callbacks needing to perform authorization should use the
-// @link papplClientIsAuthorized@ function instead.
+// The web interface supports both authentication against user accounts and
+// authentication using a single administrative access password.  This function
+// handles the details of authentication for the web interface based on the
+// system authentication service configuration (the "auth_service" argument to
+// @link papplSystemCreate@).
+//
+// > Note: IPP operation callbacks needing to perform authorization should use
+// > the @link papplClientIsAuthorized@ function instead.
 //
 
 bool					// O - `true` if authorized, `false` otherwise
@@ -395,7 +420,7 @@ papplClientHTMLAuthorize(
 
     if (code != HTTP_STATUS_CONTINUE)
     {
-      papplClientRespondHTTP(client, code, NULL, NULL, 0, 0);
+      papplClientRespond(client, code, NULL, NULL, 0, 0);
       return (false);
     }
     else
@@ -430,7 +455,7 @@ papplClientHTMLAuthorize(
     {
       status = "Invalid form data.";
     }
-    else if (!papplClientValidateForm(client, num_form, form))
+    else if (!papplClientIsValidForm(client, num_form, form))
     {
       status = "Invalid form submission.";
     }
@@ -476,7 +501,7 @@ papplClientHTMLAuthorize(
   }
 
   // If we get this far, show the standard login form...
-  papplClientRespondHTTP(client, HTTP_STATUS_OK, NULL, "text/html", 0, 0);
+  papplClientRespond(client, HTTP_STATUS_OK, NULL, "text/html", 0, 0);
   papplClientHTMLHeader(client, "Login", 0);
   papplClientHTMLPuts(client,
                       "    <div class=\"content\">\n"
@@ -500,7 +525,11 @@ papplClientHTMLAuthorize(
 
 
 //
-// 'papplClientHTMLEscape()' - Write a HTML-safe string.
+// 'papplClientHTMLEscape()' - Send a string to a web browser client.
+//
+// This function sends the specified string to the web browser client and
+// escapes special characters as HTML entities as needed, for example "&" is
+// sent as `&amp;`.
 //
 
 void
@@ -544,7 +573,10 @@ papplClientHTMLEscape(
 //
 // 'papplClientHTMLFooter()' - Show the web interface footer.
 //
-// This function also writes the trailing 0-length chunk.
+// This function sends the standard web interface footer followed by a
+// trailing 0-length chunk to finish the current HTTP response.  Use the
+// @link papplSystemSetFooterHTML@ function to add any custom HTML needed in
+// the footer.
 //
 
 void
@@ -577,12 +609,22 @@ papplClientHTMLFooter(
 //
 // 'papplClientHTMLHeader()' - Show the web interface header and title.
 //
+// This function sends the standard web interface header and title.  If the
+// "refresh" argument is greater than zero, the page will automatically reload
+// after that many seconds.
+//
+// Use the @link papplSystemAddLink@ function to add system-wide navigation
+// links to the header.  Similarly, use @link papplPrinterAddLink@ to add
+// printer-specific links, which will appear in the web interface printer if
+// the system is not configured to support multiple printers
+// (the `PAPPL_SOPTIONS_MULTI_QUEUE` option to @link papplSystemCreate@).
+//
 
 void
 papplClientHTMLHeader(
     pappl_client_t *client,		// I - Client
     const char     *title,		// I - Title
-    int            refresh)		// I - Refresh timer, if any
+    int            refresh)		// I - Refresh time in seconds (`0` for no refresh)
 {
   pappl_system_t	*system = client->system;
 					// System
@@ -590,7 +632,9 @@ papplClientHTMLHeader(
   const char		*name;		// Name for title/header
 
 
+  pthread_rwlock_rdlock(&system->rwlock);
   printer = (pappl_printer_t *)cupsArrayFirst(system->printers);
+  pthread_rwlock_unlock(&system->rwlock);
 
   if ((system->options & PAPPL_SOPTIONS_MULTI_QUEUE) || !printer)
     name = system->name;
@@ -618,7 +662,7 @@ papplClientHTMLHeader(
 
   pthread_rwlock_rdlock(&system->rwlock);
 
-  _papplClientHTMLPutLinks(client, system->links);
+  _papplClientHTMLPutLinks(client, system->links, PAPPL_LOPTIONS_NAVIGATION);
 
   pthread_rwlock_unlock(&system->rwlock);
 
@@ -629,7 +673,7 @@ papplClientHTMLHeader(
 
     pthread_rwlock_rdlock(&printer->rwlock);
 
-    _papplClientHTMLPutLinks(client, printer->links);
+    _papplClientHTMLPutLinks(client, printer->links, PAPPL_LOPTIONS_NAVIGATION);
 
     pthread_rwlock_unlock(&printer->rwlock);
   }
@@ -783,7 +827,124 @@ _papplClientHTMLInfo(
 
 
 //
-// 'papplClientHTMLPrintf()' - Send formatted text to the client, quoting as needed.
+// 'papplClientHTMLPrinterFooter()' - Show the web interface footer for printers.
+//
+// This function sends the standard web interface footer for a printer followed
+// by a trailing 0-length chunk to finish the current HTTP response.  Use the
+// @link papplSystemSetFooterHTML@ function to add any custom HTML needed in
+// the footer.
+//
+
+void
+papplClientHTMLPrinterFooter(pappl_client_t *client)	// I - Client
+{
+  papplClientHTMLPuts(client,
+                      "          </div>\n"
+                      "        </div>\n"
+                      "      </div>\n");
+  papplClientHTMLFooter(client);
+}
+
+
+//
+// 'papplClientHTMLPrinterHeader()' - Show the web interface header and title
+//                                    for printers.
+//
+// This function sends the standard web interface header and title for a
+// printer.  If the "refresh" argument is greater than zero, the page will
+// automatically reload after that many seconds.
+//
+// If "label" and "path_or_url" are non-`NULL` strings, an additional navigation
+// link is included with the title header - this is typically used for an
+// action button ("Change").
+//
+// Use the @link papplSystemAddLink@ function to add system-wide navigation
+// links to the header.  Similarly, use @link papplPrinterAddLink@ to add
+// printer-specific links, which will appear in the web interface printer if
+// the system is not configured to support multiple printers
+// (the `PAPPL_SOPTIONS_MULTI_QUEUE` option to @link papplSystemCreate@).
+//
+
+void
+papplClientHTMLPrinterHeader(
+    pappl_client_t  *client,		// I - Client
+    pappl_printer_t *printer,		// I - Printer
+    const char      *title,		// I - Title
+    int             refresh,		// I - Refresh time in seconds or 0 for none
+    const char      *label,		// I - Button label or `NULL` for none
+    const char      *path_or_url)	// I - Button path or `NULL` for none
+{
+  if (!papplClientRespond(client, HTTP_STATUS_OK, NULL, "text/html", 0, 0))
+    return;
+
+  if (printer->system->options & PAPPL_SOPTIONS_MULTI_QUEUE)
+  {
+    // Multi-queue mode, need to add the printer name to the title...
+    if (title)
+    {
+      char	full_title[1024];	// Full title
+
+      snprintf(full_title, sizeof(full_title), "%s - %s", title, printer->name);
+      papplClientHTMLHeader(client, full_title, refresh);
+    }
+    else
+    {
+      papplClientHTMLHeader(client, printer->name, refresh);
+    }
+  }
+  else
+  {
+    // Single queue mode - the function will automatically add the printer name...
+    papplClientHTMLHeader(client, title, refresh);
+  }
+
+  if (printer->system->options & PAPPL_SOPTIONS_MULTI_QUEUE)
+  {
+    pthread_rwlock_rdlock(&printer->rwlock);
+    papplClientHTMLPrintf(client,
+			  "    <div class=\"header2\">\n"
+			  "      <div class=\"row\">\n"
+			  "        <div class=\"col-12 nav\"><a class=\"btn\" href=\"%s\">%s:</a>\n", printer->uriname, printer->name);
+    _papplClientHTMLPutLinks(client, printer->links, PAPPL_LOPTIONS_NAVIGATION);
+    papplClientHTMLPuts(client,
+			"        </div>\n"
+			"      </div>\n"
+			"    </div>\n");
+    pthread_rwlock_unlock(&printer->rwlock);
+  }
+  else if (client->system->versions[0].sversion[0])
+    papplClientHTMLPrintf(client,
+			  "    <div class=\"header2\">\n"
+			  "      <div class=\"row\">\n"
+			  "        <div class=\"col-12 nav\">\n"
+			  "          Version %s\n"
+			  "        </div>\n"
+			  "      </div>\n"
+			  "    </div>\n", client->system->versions[0].sversion);
+
+  papplClientHTMLPuts(client, "    <div class=\"content\">\n");
+
+  if (title)
+  {
+    papplClientHTMLPrintf(client,
+			  "      <div class=\"row\">\n"
+			  "        <div class=\"col-12\">\n"
+			  "          <h1 class=\"title\">%s", title);
+    if (label && path_or_url)
+      papplClientHTMLPrintf(client, " <a class=\"btn\" href=\"%s\">%s</a>", path_or_url, label);
+    papplClientHTMLPuts(client, "</h1>\n");
+  }
+}
+
+
+//
+// 'papplClientHTMLPrintf()' - Send formatted text to the web browser client,
+//                             escaping as needed.
+//
+// This function sends formatted text to the web browser client using
+// `printf`-style formatting codes.  The format string itself is not escaped
+// to allow for embedded HTML, however strings inserted using the '%c' or `%s`
+// codes are escaped properly for HTML - "&" is sent as `&amp;`, etc.
 //
 
 void
@@ -798,7 +959,7 @@ papplClientHTMLPrintf(
 		type;			// Format type character
   int		width,			// Width of field
 		prec;			// Number of characters of precision
-  char		tformat[100],		// Temporary format string for sprintf()
+  char		tformat[100],		// Temporary format string for snprintf()
 		*tptr,			// Pointer into temporary format
 		temp[1024];		// Buffer for formatted numbers
   char		*s;			// Pointer to string
@@ -925,7 +1086,7 @@ papplClientHTMLPrintf(
 	    if ((size_t)(width + 2) > sizeof(temp))
 	      break;
 
-	    sprintf(temp, tformat, va_arg(ap, double));
+	    snprintf(temp, sizeof(temp), tformat, va_arg(ap, double));
 
             httpWrite2(client->http, temp, strlen(temp));
 	    break;
@@ -943,13 +1104,13 @@ papplClientHTMLPrintf(
 
 #  ifdef HAVE_LONG_LONG
             if (size == 'L')
-	      sprintf(temp, tformat, va_arg(ap, long long));
+	      snprintf(temp, sizeof(temp), tformat, va_arg(ap, long long));
 	    else
 #  endif // HAVE_LONG_LONG
             if (size == 'l')
-	      sprintf(temp, tformat, va_arg(ap, long));
+	      snprintf(temp, sizeof(temp), tformat, va_arg(ap, long));
 	    else
-	      sprintf(temp, tformat, va_arg(ap, int));
+	      snprintf(temp, sizeof(temp), tformat, va_arg(ap, int));
 
             httpWrite2(client->http, temp, strlen(temp));
 	    break;
@@ -958,7 +1119,7 @@ papplClientHTMLPrintf(
 	    if ((size_t)(width + 2) > sizeof(temp))
 	      break;
 
-	    sprintf(temp, tformat, va_arg(ap, void *));
+	    snprintf(temp, sizeof(temp), tformat, va_arg(ap, void *));
 
             httpWrite2(client->http, temp, strlen(temp));
 	    break;
@@ -999,17 +1160,30 @@ papplClientHTMLPrintf(
 
 void
 _papplClientHTMLPutLinks(
-    pappl_client_t *client,		// I - Client
-    cups_array_t   *links)		// I - Array of links
+    pappl_client_t   *client,		// I - Client
+    cups_array_t     *links,		// I - Array of links
+    pappl_loptions_t which)		// I - Which links to show
 {
+  int			i,		// Looping var
+			count;		// Number of links
   _pappl_link_t		*l;		// Current link
 
 
-  for (l = (_pappl_link_t *)cupsArrayFirst(links); l; l = (_pappl_link_t *)cupsArrayNext(links))
+  // Loop through the links.
+  //
+  // Note: We use a loop and not cupsArrayFirst/Last because other threads may
+  // be enumerating the same array of links.
+
+  for (i = 0, count = cupsArrayCount(links); i < count; i ++)
   {
+    l = (_pappl_link_t *)cupsArrayIndex(links, i);
+
+    if (!l || !(l->options & which))
+      continue;
+
     if (strcmp(client->uri, l->path_or_url))
     {
-      if (l->path_or_url[0] != '/' || !l->secure)
+      if (l->path_or_url[0] != '/' || !(l->options & PAPPL_LOPTIONS_HTTPS_REQUIRED) || (!client->system->auth_service && !client->system->password_hash[0]))
 	papplClientHTMLPrintf(client, "          <a class=\"btn\" href=\"%s\">%s</a>\n", l->path_or_url, l->label);
       else
 	papplClientHTMLPrintf(client, "          <a class=\"btn\" href=\"https://%s:%d%s\">%s</a>\n", client->host_field, client->host_port, l->path_or_url, l->label);
@@ -1021,7 +1195,10 @@ _papplClientHTMLPutLinks(
 
 
 //
-// 'papplClientHTMLPuts()' - Write a HTML string.
+// 'papplClientHTMLPuts()' - Send a HTML string to the web browser client.
+//
+// This function sends a HTML string to the client without performing any
+// escaping of special characters.
 //
 
 void
@@ -1038,7 +1215,9 @@ papplClientHTMLPuts(
 // 'papplClientHTMLStartForm()' - Start a HTML form.
 //
 // This function starts a HTML form with the specified "action" path and
-// includes the CSRF token as a hidden variable.
+// includes the CSRF token as a hidden variable.  If the "multipart" argument
+// is `true`, the form is annotated to support file attachments up to 1MiB in
+// size.
 //
 
 void
@@ -1068,7 +1247,46 @@ papplClientHTMLStartForm(
 
 
 //
-// 'papplClientSetCookie()' - Set a cookie for the client
+// 'papplClientIsValidForm()' - Validate HTML form variables.
+//
+// This function validates the contents of a HTML form using the CSRF token
+// included as a hidden variable.  When sending a HTML form you should use the
+// @link papplClientStartForm@ function to start the HTML form and insert the
+// CSRF token for later validation.
+//
+// > Note: Callers are expected to validate all other form variables.
+//
+
+bool					// O - `true` if the CSRF token is valid, `false` otherwise
+papplClientIsValidForm(
+    pappl_client_t *client,		// I - Client
+    int            num_form,		// I - Number of form variables
+    cups_option_t  *form)		// I - Form variables
+{
+  char		token[256];		// Expected CSRF token
+  const char	*session;		// Form variable
+
+
+  if ((session = cupsGetOption("session", num_form, form)) == NULL)
+    return (false);
+
+  return (!strcmp(session, papplClientGetCSRFToken(client, token, sizeof(token))));
+}
+
+
+//
+// 'papplClientSetCookie()' - Set a cookie for the web browser client.
+//
+// This function sets the value of a cookie for the client by updating the
+// `Set-Cookie` header in the HTTP response that will be sent.  The "name" and
+// "value" strings must contain only valid characters for a cookie and its
+// value as documented in RFC 6265, which basically means letters, numbers, "@",
+// "-", ".", and "_".
+//
+// The "expires" argument specifies how long the cookie will remain active in
+// seconds, for example `3600` seconds is one hour and `86400` seconds is one
+// day.  If the value is zero or less, a "session" cookie is created instead
+// which will expire as soon as the web browser is closed.
 //
 
 void
@@ -1076,7 +1294,7 @@ papplClientSetCookie(
     pappl_client_t *client,		// I - Client
     const char     *name,		// I - Cookie name
     const char     *value,		// I - Cookie value
-    int            expires)		// I - Expiration in seconds from now, 0 for a session cookie
+    int            expires)		// I - Expiration in seconds from now, `0` for a session cookie
 {
   const char	*client_cookie = httpGetCookie(client->http);
 					// Current cookie
@@ -1104,30 +1322,4 @@ papplClientSetCookie(
     snprintf(buffer, sizeof(buffer), "%s\r\nSet-Cookie: %s", client_cookie, cookie);
     httpSetCookie(client->http, buffer);
   }
-}
-
-
-//
-// 'papplClientValidateForm()' - Validate HTML form variables.
-//
-// This function validates the contents of a POST form using the CSRF token
-// included as a hidden variable.
-//
-// Note: Callers are expected to validate all other form variables.
-//
-
-bool					// O - `true` if the CSRF token is valid, `false` otherwise
-papplClientValidateForm(
-    pappl_client_t *client,		// I - Client
-    int            num_form,		// I - Number of form variables
-    cups_option_t  *form)		// I - Form variables
-{
-  char		token[256];		// Expected CSRF token
-  const char	*session;		// Form variable
-
-
-  if ((session = cupsGetOption("session", num_form, form)) == NULL)
-    return (false);
-
-  return (!strcmp(session, papplClientGetCSRFToken(client, token, sizeof(token))));
 }

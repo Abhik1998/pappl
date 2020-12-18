@@ -24,12 +24,13 @@
 typedef struct _pappl_devscheme_s	// Device scheme data
 {
   char			*scheme;		// URI scheme
-  pappl_dtype_t		dtype;			// Device type
+  pappl_devtype_t	dtype;			// Device type
   pappl_devlist_cb_t	list_cb;		// List devices callback, if any
   pappl_devopen_cb_t	open_cb;		// Open callback
   pappl_devclose_cb_t	close_cb;		// Close callback
   pappl_devread_cb_t	read_cb;		// Read callback
   pappl_devwrite_cb_t	write_cb;		// Write callback
+  pappl_devid_cb_t	id_cb;			// IEEE-1284 device ID callback, if any
   pappl_devstatus_cb_t	status_cb;		// Status callback, if any
 } _pappl_devscheme_t;
 
@@ -55,17 +56,53 @@ static ssize_t		pappl_write(pappl_device_t *device, const void *buffer, size_t b
 //
 // 'papplDeviceAddScheme()' - Add a device URI scheme.
 //
+// This function registers a device URI scheme with PAPPL, so that devices using
+// the named scheme can receive print data, report status information, and so
+// forth.  PAPPL includes support for the following URI schemes:
+//
+// - `dnssd`: Network printers discovered using DNS-SD.
+// - `file`: Character device files, plain files, and directories.
+// - `snmp`: Network printers discovered using SNMPv1.
+// - `socket`: Network printers using a hostname or numeric IP address.
+// - `usb`: Class 1 (unidirectional) or 2 (bidirectional) USB printers.
+//
+// The "scheme" parameter specifies the URI scheme and must consist of lowercase
+// letters, digits, "-", "_", and/or ".", for example "x-foo" or
+// "com.example.bar".
+//
+// The "dtype" parameter specifies the device type and should be
+// `PAPPL_DTYPE_CUSTOM_LOCAL` for locally connected printers and
+// `PAPPL_DTYPE_CUSTOM_NETWORK` for network printers.
+//
+// Each of the callbacks corresponds to one of the `papplDevice` functions:
+//
+// - "list_cb": Implements discovery of devices (optional)
+// - "open_cb": Opens communication with a device and allocates any device-
+//   specific data as needed
+// - "close_cb": Closes communication with a device and frees any device-
+//   specific data as needed
+// - "read_cb": Reads data from a device
+// - "write_cb": Write data to a device
+// - "status_cb": Gets basic printer state information from a device (optional)
+// - "id_cb": Gets the current IEEE-1284 device ID from a device (optional)
+//
+// The "open_cb" callback typically calls @link papplDeviceSetData@ to store a
+// pointer to contextual information for the connection while the "close_cb",
+// "id_cb", "read_cb", "write_cb", and "status_cb" callbacks typically call
+// @link papplDeviceGetData@ to retrieve it.
+//
 
 void
 papplDeviceAddScheme(
     const char           *scheme,	// I - URI scheme
-    pappl_dtype_t        dtype,		// I - Device type
+    pappl_devtype_t        dtype,		// I - Device type (`PAPPL_DEVTYPE_CUSTOM_LOCAL` or `PAPPL_DEVTYPE_CUSTOM_NETWORK`)
     pappl_devlist_cb_t   list_cb,	// I - List devices callback, if any
     pappl_devopen_cb_t   open_cb,	// I - Open callback
     pappl_devclose_cb_t  close_cb,	// I - Close callback
     pappl_devread_cb_t   read_cb,	// I - Read callback
     pappl_devwrite_cb_t  write_cb,	// I - Write callback
-    pappl_devstatus_cb_t status_cb)	// I - Status callback, if any
+    pappl_devstatus_cb_t status_cb,	// I - Status callback, if any
+    pappl_devid_cb_t     id_cb)		// I - IEEE-1284 device ID callback, if any
 {
   _pappl_devscheme_t	*ds,		// Device URI scheme data
 			dkey;		// Search key
@@ -96,6 +133,7 @@ papplDeviceAddScheme(
     ds->read_cb   = read_cb;
     ds->write_cb  = write_cb;
     ds->status_cb = status_cb;
+    ds->id_cb     = id_cb;
 
     cupsArrayAdd(device_schemes, ds);
   }
@@ -105,7 +143,34 @@ papplDeviceAddScheme(
 
 
 //
+// '_papplDeviceAddSupportedSchemes()' - Add the available URI schemes.
+//
+
+void
+_papplDeviceAddSupportedSchemes(
+    ipp_t *attrs)			// I - Attributes
+{
+  int			i;		// Looping var
+  ipp_attribute_t	*attr;		// IPP attribute
+  _pappl_devscheme_t	*devscheme;	// Current device scheme
+
+
+  pthread_rwlock_rdlock(&device_rwlock);
+
+  attr = ippAddStrings(attrs, IPP_TAG_SYSTEM, IPP_TAG_URISCHEME, "smi2699-device-uri-schemes-supported", cupsArrayCount(device_schemes), NULL, NULL);
+
+  for (i = 0, devscheme = (_pappl_devscheme_t *)cupsArrayFirst(device_schemes); devscheme; i ++, devscheme = (_pappl_devscheme_t *)cupsArrayNext(device_schemes))
+    ippSetString(attrs, &attr, i, devscheme->scheme);
+
+  pthread_rwlock_unlock(&device_rwlock);
+}
+
+
+//
 // 'papplDeviceClose()' - Close a device connection.
+//
+// This function flushes any pending write data and closes the connection to a
+// device.
 //
 
 void
@@ -152,6 +217,10 @@ _papplDeviceError(
 //
 // 'papplDeviceError()' - Report an error on a device.
 //
+// This function reports an error on a device using the client-supplied callback
+// function.  It is normally called from any custom device URI scheme callbacks
+// you implement.
+//
 
 void
 papplDeviceError(
@@ -177,17 +246,29 @@ papplDeviceError(
 //
 // 'papplDeviceFlush()' - Flush any buffered data to the device.
 //
+// This function flushes any pending write data sent using the
+// @link papplDevicePrintf@, @link papplDevicePuts@, or @link papplDeviceWrite@
+// functions to the device.
+//
+
 
 void
 papplDeviceFlush(pappl_device_t *device)// I - Device
 {
   if (device && device->bufused > 0)
+  {
     pappl_write(device, device->buffer, device->bufused);
+    device->bufused = 0;
+  }
 }
 
 
 //
 // 'papplDeviceGetData()' - Get device-specific data.
+//
+// This function returns any device-specific data that has been set by the
+// device open callback.  It is normally only called from any custom device URI
+// scheme callbacks you implement.
 //
 
 void *					// O - Device data pointer
@@ -199,18 +280,68 @@ papplDeviceGetData(
 
 
 //
-// 'papplDeviceGetMetrics()' - Get the device metrics.
+// 'papplDeviceGetID()' - Get the IEEE-1284 device ID.
+//
+// This function queries the IEEE-1284 device ID from the device and copies it
+// to the provided buffer.  The buffer must be at least 64 bytes and should be
+// at least 1024 bytes in length.
+//
+// > *Note:* This function can block for up to several seconds depending on
+// > the type of connection.
 //
 
-pappl_dmetrics_t *			// O - Metrics data
+char *					// O - IEEE-1284 device ID or `NULL` on failure
+papplDeviceGetID(
+    pappl_device_t *device,		// I - Device
+    char           *buffer,		// I - Buffer for IEEE-1284 device ID
+    size_t         bufsize)		// I - Size of buffer
+{
+  struct timeval	starttime,	// Start time
+			endtime;	// End time
+  char			*ret;		// Return value
+
+
+  // Range check input...
+  if (buffer)
+    *buffer = '\0';
+
+  if (!device || !device->id_cb || !buffer || bufsize < 64)
+    return (NULL);
+
+  // Get the device ID and collect timing metrics...
+  gettimeofday(&starttime, NULL);
+
+  ret = (device->id_cb)(device, buffer, bufsize);
+
+  gettimeofday(&endtime, NULL);
+
+  device->metrics.status_requests ++;
+  device->metrics.status_msecs += (size_t)(1000 * (endtime.tv_sec - starttime.tv_sec) + (endtime.tv_usec - starttime.tv_usec) / 1000);
+
+  // Return the device ID
+  return (ret);
+}
+
+
+//
+// 'papplDeviceGetMetrics()' - Get the device metrics.
+//
+// This function returns a copy of the device metrics data, which includes the
+// number, length (in bytes), and duration (in milliseconds) of read, status,
+// and write requests for the current session.  This information is normally
+// used for performance measurement and optimization during development of a
+// printer application.  It can also be useful diagnostic information.
+//
+
+pappl_devmetrics_t *			// O - Metrics data
 papplDeviceGetMetrics(
-    pappl_device_t   *device,		// I - Device
-    pappl_dmetrics_t *metrics)		// I - Buffer for metrics data
+    pappl_device_t     *device,		// I - Device
+    pappl_devmetrics_t *metrics)	// I - Buffer for metrics data
 {
   if (device && metrics)
-    memcpy(metrics, &device->metrics, sizeof(pappl_dmetrics_t));
+    memcpy(metrics, &device->metrics, sizeof(pappl_devmetrics_t));
   else if (metrics)
-    memset(metrics, 0, sizeof(pappl_dmetrics_t));
+    memset(metrics, 0, sizeof(pappl_devmetrics_t));
 
   return (metrics);
 }
@@ -219,21 +350,24 @@ papplDeviceGetMetrics(
 //
 // 'papplDeviceGetDeviceStatus()' - Get the printer status bits.
 //
+// This function returns the current printer status bits, as applicable to the
+// current device.
+//
 // The status bits for USB devices come from the original Centronics parallel
 // printer "standard" which was later formally standardized in IEEE 1284-1984
 // and the USB Device Class Definition for Printing Devices.  Some vendor
 // extentions are also supported.
 //
-// The status bits for socket devices come from the hrPrinterDetectedErrorState
+// The status bits for network devices come from the hrPrinterDetectedErrorState
 // property that is defined in the SNMP Printer MIB v2 (RFC 3805).
 //
 // This function returns a @link pappl_preason_t@ bitfield which can be
 // passed to the @link papplPrinterSetReasons@ function.  Use the
-// @link PAPPL_PREASON_DEVICE_STATUS@ value as the value of the `remove`
+// @link PAPPL_PREASON_DEVICE_STATUS@ value as the value of the "remove"
 // argument.
 //
-// This function can block for several seconds while getting the status
-// information.
+// > Note: This function can block for several seconds while getting the status
+// > information.
 //
 
 pappl_preason_t				// O - IPP "printer-state-reasons" values
@@ -246,30 +380,105 @@ papplDeviceGetStatus(
 					// IPP "printer-state-reasons" values
 
 
-  gettimeofday(&starttime, NULL);
+  if (device)
+  {
+    gettimeofday(&starttime, NULL);
 
-  if (device->status_cb)
-    status = (device->status_cb)(device);
+    if (device->status_cb)
+      status = (device->status_cb)(device);
 
-  gettimeofday(&endtime, NULL);
+    gettimeofday(&endtime, NULL);
 
-  device->metrics.status_requests ++;
-  device->metrics.status_msecs += 1000 * (endtime.tv_sec - starttime.tv_sec) + (endtime.tv_usec - starttime.tv_usec) / 1000;
+    device->metrics.status_requests ++;
+    device->metrics.status_msecs += (size_t)(1000 * (endtime.tv_sec - starttime.tv_sec) + (endtime.tv_usec - starttime.tv_usec) / 1000);
+  }
 
   return (status);
 }
 
 
 //
+// 'papplDeviceIsSupported()' - Determine whether a given URI is supported.
+//
+// This function determines whether a given URI or URI scheme is supported as
+// a device.
+//
+
+bool					// O - `true` if supported, `false` otherwise
+papplDeviceIsSupported(
+    const char *uri)			// I - URI
+{
+  char			scheme[32],	// Device scheme
+			userpass[32],	// Device user/pass
+			host[256],	// Device host
+			resource[256];	// Device resource
+  int			port;		// Device port
+  _pappl_devscheme_t	key,		// Device search key
+			*match;		// Matching key
+
+
+  // Separate out the components of the URI...
+  if (httpSeparateURI(HTTP_URI_CODING_ALL, uri, scheme, sizeof(scheme), userpass, sizeof(userpass), host, sizeof(host), &port, resource, sizeof(resource)) < HTTP_URI_STATUS_OK)
+    return (false);
+
+  // Files are OK if the resource path is writable...
+  if (!strcmp(scheme, "file"))
+  {
+    char *options = strchr(resource, '?');
+					// Device options, if any
+
+    if (options)
+      *options = '\0';			// Strip options before writability test
+
+    return (!access(resource, W_OK));
+  }
+
+  // Make sure schemes are added...
+  if (!device_schemes)
+  {
+    _papplDeviceAddFileScheme();
+    _papplDeviceAddNetworkSchemes();
+    _papplDeviceAddUSBScheme();
+  }
+
+  // Otherwise try to lookup the URI scheme...
+  pthread_rwlock_rdlock(&device_rwlock);
+
+  key.scheme = scheme;
+  match      = (_pappl_devscheme_t *)cupsArrayFind(device_schemes, &key);
+
+  pthread_rwlock_unlock(&device_rwlock);
+
+  return (match != NULL);
+}
+
+
+//
 // 'papplDeviceList()' - List available devices.
+//
+// This function lists the available devices, calling the "cb" function once per
+// device that is discovered/listed.  The callback function receives the device
+// URI, IEEE-1284 device ID (if any), and "data" pointer, and returns `true` to
+// stop listing devices and `false` to continue.
+//
+// The "types" argument determines which devices are listed, for example
+// `PAPPL_DEVTYPE_ALL` will list all types of devices while `PAPPL_DEVTYPE_USB` only
+// lists USB printers.
+//
+// Any errors are reported using the supplied "err_cb" function.  If you specify
+// `NULL` for this argument, errors are sent to `stderr`.
+//
+// > Note: This function will block (not return) until each of the device URI
+// > schemes has reported all of the devices *or* the supplied callback function
+// > returns `true`.
 //
 
 bool					// O - `true` if the callback returned `true`, `false` otherwise
 papplDeviceList(
-    pappl_dtype_t       types,		// I - Device types
+    pappl_devtype_t       types,		// I - Device types
     pappl_device_cb_t   cb,		// I - Callback function
     void                *data,		// I - User data for callback
-    pappl_deverror_cb_t err_cb,		// I - Error callback
+    pappl_deverror_cb_t err_cb,		// I - Error callback or `NULL` for default
     void                *err_data)	// I - Data for error callback
 {
   bool			ret = false;	// Return value
@@ -300,14 +509,19 @@ papplDeviceList(
 //
 // 'papplDeviceOpen()' - Open a connection to a device.
 //
-// The "file", "snmp", "socket", and "usb" URI schemes are currently supported.
+// This function opens a connection to the specified device URI.  The "name"
+// argument provides textual context for the connection and is usually the name
+// (title) of the print job.
+//
+// Any errors are reported using the supplied "err_cb" function.  If you specify
+// `NULL` for this argument, errors are sent to `stderr`.
 //
 
 pappl_device_t	*			// O - Device connection or `NULL` on error
 papplDeviceOpen(
     const char          *device_uri,	// I - Device URI
     const char          *name,		// I - Job name
-    pappl_deverror_cb_t err_cb,		// I - Error callback
+    pappl_deverror_cb_t err_cb,		// I - Error callback or `NULL` for default
     void                *err_data)	// I - Data for error callback
 {
   _pappl_devscheme_t	*ds,		// Scheme
@@ -381,11 +595,15 @@ papplDeviceOpen(
 
 
 //
-// 'papplDeviceParse1284ID()' - Parse an IEEE-1284 device ID string.
+// 'papplDeviceParseID()' - Parse an IEEE-1284 device ID string.
+//
+// This function parses an IEEE-1284 device ID string and returns an array of
+// key/value pairs as a `cups_option_t` array.  The returned array must be
+// freed using the `cupsFreeOptions` function.
 //
 
 int					// O - Number of key/value pairs
-papplDeviceParse1284ID(
+papplDeviceParseID(
     const char    *device_id,		// I - IEEE-1284 device ID string
     cups_option_t **pairs)		// O - Key/value pairs
 {
@@ -451,6 +669,13 @@ papplDeviceParse1284ID(
 //
 // 'papplDevicePrintf()' - Write a formatted string.
 //
+// This function buffers a formatted string that will be sent to the device.
+// The "format" argument accepts all `printf` format specifiers and behaves
+// identically to that function.
+//
+// Call the @link papplDeviceFlush@ function to ensure that the formatted string
+// is immediately sent to the device.
+//
 
 ssize_t					// O - Number of characters or -1 on error
 papplDevicePrintf(
@@ -473,6 +698,10 @@ papplDevicePrintf(
 //
 // 'papplDevicePuts()' - Write a literal string.
 //
+// This function buffers a literal string that will be sent to the device.
+// Call the @link papplDeviceFlush@ function to ensure that the literal string
+// is immediately sent to the device.
+//
 
 ssize_t					// O - Number of characters or -1 on error
 papplDevicePuts(
@@ -485,6 +714,9 @@ papplDevicePuts(
 
 //
 // 'papplDeviceRead()' - Read from a device.
+//
+// This function reads data from the device.  Depending on the device, this
+// function may block indefinitely.
 //
 
 ssize_t					// O - Number of bytes read or -1 on error
@@ -512,7 +744,7 @@ papplDeviceRead(
   gettimeofday(&endtime, NULL);
 
   device->metrics.read_requests ++;
-  device->metrics.read_msecs += 1000 * (endtime.tv_sec - starttime.tv_sec) + (endtime.tv_usec - starttime.tv_usec) / 1000;
+  device->metrics.read_msecs += (size_t)(1000 * (endtime.tv_sec - starttime.tv_sec) + (endtime.tv_usec - starttime.tv_usec) / 1000);
   if (count > 0)
     device->metrics.read_bytes += (size_t)count;
 
@@ -522,6 +754,10 @@ papplDeviceRead(
 
 //
 // 'papplDeviceSetData()' - Set device-specific data.
+//
+// This function sets any device-specific data needed to communicate with the
+// device.  It is normally only called from the open callback that was
+// registered for the device URI scheme.
 //
 
 void
@@ -536,6 +772,10 @@ papplDeviceSetData(
 
 //
 // 'papplDeviceWrite()' - Write to a device.
+//
+// This function buffers data that will be sent to the device.  Call the
+// @link papplDeviceFlush@ function to ensure that the data is immediately sent
+// to the device.
 //
 
 ssize_t					// O - Number of bytes written or -1 on error
@@ -560,7 +800,7 @@ papplDeviceWrite(
   {
     memcpy(device->buffer + device->bufused, buffer, bytes);
     device->bufused += bytes;
-    return (bytes);
+    return ((ssize_t)bytes);
   }
 
   return (pappl_write(device, buffer, bytes));
@@ -601,7 +841,7 @@ pappl_write(pappl_device_t *device,	// I - Device
   gettimeofday(&endtime, NULL);
 
   device->metrics.write_requests ++;
-  device->metrics.write_msecs += 1000 * (endtime.tv_sec - starttime.tv_sec) + (endtime.tv_usec - starttime.tv_usec) / 1000;
+  device->metrics.write_msecs += (size_t)(1000 * (endtime.tv_sec - starttime.tv_sec) + (endtime.tv_usec - starttime.tv_usec) / 1000);
   if (count > 0)
     device->metrics.write_bytes += (size_t)count;
 

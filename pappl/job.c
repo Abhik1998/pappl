@@ -18,6 +18,10 @@
 //
 // 'papplJobCancel()' - Cancel a job.
 //
+// This function cancels the specified job.  If the job is currently being
+// printed, it will be stopped at a convenient time (usually the end of a page)
+// so that the printer will be left in a known state.
+//
 
 void
 papplJobCancel(pappl_job_t *job)	// I - Job
@@ -90,13 +94,14 @@ _papplJobCreate(
     return (NULL);
   }
 
-  job->attrs    = ippNew();
-  job->fd       = -1;
-  job->format   = format;
-  job->name     = job_name;
-  job->printer  = printer;
-  job->state    = IPP_JSTATE_HELD;
-  job->system   = printer->system;
+  job->attrs   = ippNew();
+  job->fd      = -1;
+  job->format  = format;
+  job->name    = job_name;
+  job->printer = printer;
+  job->state   = IPP_JSTATE_HELD;
+  job->system  = printer->system;
+  job->created = time(NULL);
 
   if (attrs)
   {
@@ -158,36 +163,6 @@ _papplJobCreate(
 
 
 //
-// 'papplJobCreate()' - Create a new job object from a Print-Job or Create-Job request.
-//
-
-pappl_job_t *				// O - Job
-papplJobCreate(
-    pappl_client_t *client)		// I - Client
-{
-  ipp_attribute_t	*attr;		// Job attribute
-  const char		*job_name,	// Job name
-			*username;	// Owner
-
-
-  // Get the requesting-user-name, document format, and name...
-  if (client->username[0])
-    username = client->username;
-  else  if ((attr = ippFindAttribute(client->request, "requesting-user-name", IPP_TAG_NAME)) != NULL)
-    username = ippGetString(attr, 0, NULL);
-  else
-    username = "guest";
-
-  if ((attr = ippFindAttribute(client->request, "job-name", IPP_TAG_NAME)) != NULL)
-    job_name = ippGetString(attr, 0, NULL);
-  else
-    job_name = "Untitled";
-
-  return (_papplJobCreate(client->printer, 0, username, NULL, job_name, client->request));
-}
-
-
-//
 // '_papplJobDelete()' - Remove a job from the system and free its memory.
 //
 
@@ -200,7 +175,9 @@ _papplJobDelete(pappl_job_t *job)	// I - Job
 
   free(job->message);
 
-  _papplJobRemoveFile(job);
+  // Only remove the job file (document) if the job is in a terminating state...
+  if (job->state >= IPP_JSTATE_CANCELED)
+    _papplJobRemoveFile(job);
 
   free(job);
 }
@@ -209,13 +186,23 @@ _papplJobDelete(pappl_job_t *job)	// I - Job
 //
 // 'papplJobOpenFile()' - Create or open a file for the document in a job.
 //
+// This function creates or opens a file for a job.  The "fname" and "fnamesize"
+// arguments specify the location and size of a buffer to store the job
+// filename, which incorporates the "directory", printer ID, job ID, job name
+// (title), and "ext" values.  The job name is "sanitized" to only contain
+// alphanumeric characters.
+//
+// The "mode" argument is "r" to read an existing job file or "w" to write a
+// new job file.  New files are created with restricted permissions for
+// security purposes.
+//
 
 int					// O - File descriptor or -1 on error
 papplJobOpenFile(
     pappl_job_t *job,			// I - Job
     char        *fname,			// I - Filename buffer
     size_t      fnamesize,		// I - Size of filename buffer
-    const char  *directory,		// I - Directory to store in
+    const char  *directory,		// I - Directory to store in (`NULL` for default)
     const char  *ext,			// I - Extension (`NULL` for default)
     const char  *mode)			// I - Open mode - "r" for reading or "w" for writing
 {
@@ -227,6 +214,9 @@ papplJobOpenFile(
   // Make a name from the job-name attribute...
   if ((job_name = ippGetString(ippFindAttribute(job->attrs, "job-name", IPP_TAG_NAME), 0, NULL)) == NULL)
     job_name = "untitled";
+
+  if ((nameptr = strrchr(job_name, '/')) != NULL && nameptr[1])
+    job_name = nameptr + 1;
 
   for (nameptr = name; *job_name && nameptr < (name + sizeof(name) - 1); job_name ++)
   {
@@ -248,9 +238,7 @@ papplJobOpenFile(
   // Figure out the extension...
   if (!ext)
   {
-    if (!strcasecmp(job->format, "application/ipp"))
-      ext = "ipp";
-    else if (!strcasecmp(job->format, "image/jpeg"))
+    if (!strcasecmp(job->format, "image/jpeg"))
       ext = "jpg";
     else if (!strcasecmp(job->format, "image/png"))
       ext = "png";
@@ -267,7 +255,7 @@ papplJobOpenFile(
   }
 
   // Create a filename with the job-id, job-name, and document-format (extension)...
-  snprintf(fname, fnamesize, "%s/p%05dj%09d-%s.%s", directory, job->printer->printer_id, job->job_id, name, ext);
+  snprintf(fname, fnamesize, "%s/p%05dj%09d-%s.%s", directory ? directory : job->system->directory, job->printer->printer_id, job->job_id, name, ext);
 
   if (!strcmp(mode, "r"))
     return (open(fname, O_RDONLY | O_NOFOLLOW | O_CLOEXEC));
@@ -407,9 +395,10 @@ _papplPrinterCheckJobs(
 
   pthread_rwlock_wrlock(&printer->rwlock);
 
-  for (job = (pappl_job_t *)cupsArrayFirst(printer->active_jobs);
-       job;
-       job = (pappl_job_t *)cupsArrayNext(printer->active_jobs))
+  // Enumerate the jobs.  Since we have a writer (exclusive) lock, we are the
+  // only thread enumerating and can use cupsArrayFirst/Last...
+
+  for (job = (pappl_job_t *)cupsArrayFirst(printer->active_jobs); job; job = (pappl_job_t *)cupsArrayNext(printer->active_jobs))
   {
     if (job->state == IPP_JSTATE_PENDING)
     {
@@ -442,10 +431,12 @@ _papplPrinterCheckJobs(
 
 
 //
-// 'papplPrinterFindJob()' - Find a job by its "job-id" value.
+// 'papplPrinterFindJob()' - Find a job.
+//
+// This function finds a job submitted to a printer using its integer ID value.
 //
 
-pappl_job_t *				// O - Job or `NULL`
+pappl_job_t *				// O - Job or `NULL` if not found
 papplPrinterFindJob(
     pappl_printer_t *printer,		// I - Printer
     int             job_id)		// I - Job ID
@@ -467,11 +458,20 @@ papplPrinterFindJob(
 //
 // 'papplSystemCleanJobs()' - Clean out old (completed) jobs.
 //
+// This function deletes all old (completed) jobs above the limit set by the
+// @link papplPrinterSetMaxCompletedJobs@ function.  The level may temporarily
+// exceed this limit if the jobs were completed within the last 60 seconds.
+//
+// > Note: This function is normally called automatically from the
+// > @link papplSystemRun@ function.
+//
 
 void
 papplSystemCleanJobs(
     pappl_system_t *system)		// I - System
 {
+  int			i,		// Looping var
+			count;		// Number of printers
   pappl_printer_t	*printer;	// Current printer
   pappl_job_t		*job;		// Current job
   time_t		cleantime;	// Clean time
@@ -481,12 +481,22 @@ papplSystemCleanJobs(
 
   pthread_rwlock_rdlock(&system->rwlock);
 
-  for (printer = (pappl_printer_t *)cupsArrayFirst(system->printers); printer; printer = (pappl_printer_t *)cupsArrayNext(system->printers))
+  // Loop through the printers.
+  //
+  // Note: Cannot use cupsArrayFirst/Last since other threads might be
+  // enumerating the printers array.
+
+  for (i = 0, count = cupsArrayCount(system->printers); i < count; i ++)
   {
+    printer = (pappl_printer_t *)cupsArrayIndex(system->printers, i);
+
     if (cupsArrayCount(printer->completed_jobs) == 0 || printer->max_completed_jobs <= 0)
       continue;
 
     pthread_rwlock_wrlock(&printer->rwlock);
+
+    // Enumerate the jobs.  Since we have a writer (exclusive) lock, we are the
+    // only thread enumerating and can use cupsArrayFirst/Last...
 
     for (job = (pappl_job_t *)cupsArrayFirst(printer->completed_jobs); job; job = (pappl_job_t *)cupsArrayNext(printer->completed_jobs))
     {

@@ -20,6 +20,7 @@
 
 static void	parse_contact(char *value, pappl_contact_t *contact);
 static void	parse_media_col(char *value, pappl_media_col_t *media);
+static char	*read_line(cups_file_t *fp, char *line, size_t linesize, char **value, int *linenum);
 static void	write_contact(cups_file_t *fp, pappl_contact_t *contact);
 static void	write_media_col(cups_file_t *fp, const char *name, pappl_media_col_t *media);
 static void	write_options(cups_file_t *fp, const char *name, int num_options, cups_option_t *options);
@@ -27,6 +28,19 @@ static void	write_options(cups_file_t *fp, const char *name, int num_options, cu
 
 //
 // 'papplSystemLoadState()' - Load the previous system state.
+//
+// This function loads the previous system state from a file created by the
+// @link papplSystemSaveState@ function.  The system state contains all of the
+// system object values, the list of printers, and the jobs for each printer.
+//
+// When loading a printer definition, if the printer cannot be created (e.g.,
+// because the driver name is no longer valid) then that printer and all of its
+// job history will be lost.  In the case of a bad driver name, a printer
+// application's driver callback can perform any necessary mapping of the driver
+// name, including the use its auto-add callback to find a compatible new
+// driver.
+//
+// > Note: This function must be called prior to @link papplSystemRun@.
 //
 
 bool					// O - `true` on success, `false` on failure
@@ -38,6 +52,7 @@ papplSystemLoadState(
   cups_file_t		*fp;		// Output file
   int			linenum;	// Line number
   char			line[2048],	// Line from file
+			*ptr,		// Pointer into line/value
 			*value;		// Value from line
 
 
@@ -65,7 +80,7 @@ papplSystemLoadState(
   papplLog(system, PAPPL_LOGLEVEL_INFO, "Loading system state from '%s'.", filename);
 
   linenum = 0;
-  while (cupsFileGetConf(fp, line, sizeof(line), &value, &linenum))
+  while (read_line(fp, line, sizeof(line), &value, &linenum))
   {
     if (!strcasecmp(line, "DNSSDName"))
       papplSystemSetDNSSDName(system, value);
@@ -115,12 +130,22 @@ papplSystemLoadState(
         break;
       }
 
-      printer = papplPrinterCreate(system, PAPPL_SERVICE_TYPE_PRINT, atoi(printer_id), printer_name, driver_name, device_id, device_uri);
+      if ((printer = papplPrinterCreate(system, atoi(printer_id), printer_name, driver_name, device_id, device_uri)) == NULL)
+      {
+	if (errno == EEXIST)
+	  papplLog(system, PAPPL_LOGLEVEL_ERROR, "Printer '%s' already exists, dropping duplicate printer and job history in state file.", printer_name);
+	else if (errno == EIO)
+	  papplLog(system, PAPPL_LOGLEVEL_ERROR, "Dropping printer '%s' and its job history because the driver ('%s') is no longer supported.", printer_name, driver_name);
+	else
+	  papplLog(system, PAPPL_LOGLEVEL_ERROR, "Dropping printer '%s' and its job history because an error occurred: %s", printer_name, strerror(errno));
+      }
 
-      while (cupsFileGetConf(fp, line, sizeof(line), &value, &linenum))
+      while (read_line(fp, line, sizeof(line), &value, &linenum))
       {
         if (!strcasecmp(line, "</Printer>"))
           break;
+	else if (!printer)
+	  continue;
 	else if (!strcasecmp(line, "DNSSDName"))
 	  papplPrinterSetDNSSDName(printer, value);
 	else if (!strcasecmp(line, "Location"))
@@ -192,6 +217,48 @@ papplSystemLoadState(
 	  sscanf(value, "%dx%ddpi", &printer->driver_data.x_default, &printer->driver_data.y_default);
 	else if (!strcasecmp(line, "sides-default"))
 	  printer->driver_data.sides_default = _papplSidesValue(value);
+        else if ((ptr = strstr(line, "-default")) != NULL)
+        {
+          char	defname[128],		// xxx-default name
+	      	supname[128];		// xxx-supported name
+	  ipp_attribute_t *attr;	// Attribute
+
+          *ptr = '\0';
+
+          snprintf(defname, sizeof(defname), "%s-default", line);
+          snprintf(supname, sizeof(supname), "%s-supported", line);
+
+          if (!value)
+            value = "";
+
+	  ippDeleteAttribute(printer->driver_attrs, ippFindAttribute(printer->driver_attrs, defname, IPP_TAG_ZERO));
+
+          if ((attr = ippFindAttribute(printer->driver_attrs, supname, IPP_TAG_ZERO)) != NULL)
+          {
+            switch (ippGetValueTag(attr))
+            {
+              case IPP_TAG_BOOLEAN :
+                  ippAddBoolean(printer->driver_attrs, IPP_TAG_PRINTER, defname, !strcmp(value, "true"));
+                  break;
+
+              case IPP_TAG_INTEGER :
+              case IPP_TAG_RANGE :
+                  ippAddInteger(printer->driver_attrs, IPP_TAG_PRINTER, IPP_TAG_INTEGER, defname, atoi(value));
+                  break;
+
+              case IPP_TAG_KEYWORD :
+		  ippAddString(printer->driver_attrs, IPP_TAG_PRINTER, IPP_TAG_KEYWORD, defname, NULL, value);
+                  break;
+
+              default :
+                  break;
+            }
+	  }
+          else
+          {
+            ippAddString(printer->driver_attrs, IPP_TAG_PRINTER, IPP_TAG_TEXT, defname, NULL, value);
+          }
+        }
 	else if (!strcasecmp(line, "Job") && value)
 	{
 	  // Read printer job
@@ -285,6 +352,15 @@ papplSystemLoadState(
 
 //
 // 'papplSystemSaveState()' - Save the current system state.
+//
+// This function saves the current system state to a file.  It is typically
+// used with the @link papplSystemSetSaveCallback@ function to periodically
+// save the state:
+//
+// ```
+// |papplSystemSetSaveCallback(system, (pappl_save_cb_t)papplSystemSaveState,
+// |    (void *)filename);
+// ```
 //
 
 bool					// O - `true` on success, `false` on failure
@@ -385,7 +461,7 @@ papplSystemSaveState(
       }
     }
     if (printer->driver_data.orient_default)
-      cupsFilePutConf(fp, "orientation-requested-default", ippEnumString("orientation-requested", printer->driver_data.orient_default));
+      cupsFilePutConf(fp, "orientation-requested-default", ippEnumString("orientation-requested", (int)printer->driver_data.orient_default));
     if (printer->driver_data.bin_default && printer->driver_data.num_bin > 0)
       cupsFilePutConf(fp, "output-bin-default", printer->driver_data.bin[printer->driver_data.bin_default]);
     if (printer->driver_data.color_default)
@@ -395,7 +471,7 @@ papplSystemSaveState(
     if (printer->driver_data.darkness_default)
       cupsFilePrintf(fp, "print-darkness-default %d\n", printer->driver_data.darkness_default);
     if (printer->driver_data.quality_default)
-      cupsFilePutConf(fp, "print-quality-default", ippEnumString("print-quality", printer->driver_data.quality_default));
+      cupsFilePutConf(fp, "print-quality-default", ippEnumString("print-quality", (int)printer->driver_data.quality_default));
     if (printer->driver_data.scaling_default)
       cupsFilePutConf(fp, "print-scaling-default", _papplScalingString(printer->driver_data.scaling_default));
     if (printer->driver_data.darkness_default)
@@ -404,6 +480,16 @@ papplSystemSaveState(
       cupsFilePutConf(fp, "sides-default", _papplSidesString(printer->driver_data.sides_default));
     if (printer->driver_data.x_default)
       cupsFilePrintf(fp, "printer-resolution-default %dx%ddpi\n", printer->driver_data.x_default, printer->driver_data.y_default);
+    for (i = 0; i < printer->driver_data.num_vendor; i ++)
+    {
+      char	defname[128],		// xxx-default name
+	      	defvalue[1024];		// xxx-default value
+
+      snprintf(defname, sizeof(defname), "%s-default", printer->driver_data.vendor[i]);
+      ippAttributeString(ippFindAttribute(printer->driver_attrs, defname, IPP_TAG_ZERO), defvalue, sizeof(defvalue));
+
+      cupsFilePutConf(fp, defname, defvalue);
+    }
 
     for (job = (pappl_job_t *)cupsArrayFirst(printer->all_jobs); job; job = (pappl_job_t *)cupsArrayNext(printer->all_jobs))
     {
@@ -417,9 +503,9 @@ papplSystemSaveState(
       if (job->filename)
         num_options = cupsAddOption("filename", job->filename, num_options, &options);
       if (job->state)
-        num_options = cupsAddIntegerOption("state", job->state, num_options, &options);
+        num_options = cupsAddIntegerOption("state", (int)job->state, num_options, &options);
       if (job->state_reasons)
-        num_options = cupsAddIntegerOption("state_reasons", job->state_reasons, num_options, &options);
+        num_options = cupsAddIntegerOption("state_reasons", (int)job->state_reasons, num_options, &options);
       if (job->created)
         num_options = cupsAddIntegerOption("created", (int)job->created, num_options, &options);
       if (job->processing)
@@ -433,8 +519,8 @@ papplSystemSaveState(
 
       if (job->attrs)
       {
-	int	attr_fd;	// Attribute file descriptor
-	char	job_attr_filename[1024];	// Attribute filename
+	int	attr_fd;		// Attribute file descriptor
+	char	job_attr_filename[1024];// Attribute filename
 
         // Save job attributes to file in spool directory...
         if (job->state < IPP_JSTATE_STOPPED)
@@ -550,6 +636,48 @@ parse_media_col(
 
 
 //
+// 'read_line()' - Read a line from the state file.
+//
+// This function is like `cupsFileGetConf`, except that it doesn't support
+// comments since the state files are not meant to be edited or maintained by
+// humans.
+//
+
+static char *				// O  - Line or `NULL` on EOF
+read_line(cups_file_t *fp,		// I  - File
+          char        *line,		// I  - Line buffer
+          size_t      linesize,		// I  - Size of line buffer
+          char        **value,		// O  - Value portion of line
+          int         *linenum)		// IO - Current line number
+{
+  char	*ptr;				// Pointer into line
+
+
+  // Try reading a line from the file...
+  *value = NULL;
+
+  if (!cupsFileGets(fp, line, linesize))
+    return (NULL);
+
+  // Got it, bump the line number...
+  (*linenum) ++;
+
+  // If we have "something value" then split at the whitespace...
+  if ((ptr = strchr(line, ' ')) != NULL)
+  {
+    *ptr++ = '\0';
+    *value = ptr;
+  }
+
+  // Strip the trailing ">" for "<something value(s)>"
+  if (line[0] == '<' && *value && (ptr = *value + strlen(*value) - 1) >= *value && *ptr == '>')
+    *ptr = '\0';
+
+  return (line);
+}
+
+
+//
 // 'write_contact()' - Write an "xxx-contact" value.
 //
 
@@ -639,7 +767,7 @@ write_options(cups_file_t   *fp,	// I - File
       if (*ptr == '\\' || *ptr == '\"')
       {
         if (ptr > start)
-          cupsFileWrite(fp, start, ptr - start);
+          cupsFileWrite(fp, start, (size_t)(ptr - start));
 
 	cupsFilePutChar(fp, '\\');
 	start = ptr;
@@ -647,7 +775,7 @@ write_options(cups_file_t   *fp,	// I - File
     }
 
     if (ptr > start)
-      cupsFileWrite(fp, start, ptr - start);
+      cupsFileWrite(fp, start, (size_t)(ptr - start));
 
     cupsFilePutChar(fp, '\"');
 

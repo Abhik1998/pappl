@@ -22,93 +22,9 @@
 static void	job_cb(pappl_job_t *job, pappl_client_t *client);
 static char	*localize_keyword(const char *attrname, const char *keyword, char *buffer, size_t bufsize);
 static char	*localize_media(pappl_media_col_t *media, bool include_source, char *buffer, size_t bufsize);
-static void	media_chooser(pappl_client_t *client, pappl_pdriver_data_t *driver_data, const char *title, const char *name, pappl_media_col_t *media);
-static void	printer_footer(pappl_client_t *client);
-static void	printer_header(pappl_client_t *client, pappl_printer_t *printer, const char *title, int refresh, const char *label, const char *path_or_url);
+static void	media_chooser(pappl_client_t *client, pappl_pr_driver_data_t *driver_data, const char *title, const char *name, pappl_media_col_t *media);
 static char	*time_string(time_t tv, char *buffer, size_t bufsize);
 static void	job_pager(pappl_client_t *client, pappl_printer_t *printer, int job_index, int limit);
-
-
-//
-// '_papplPrinterIteratorWebCallback()' - Show the printer status.
-//
-
-void
-_papplPrinterIteratorWebCallback(
-    pappl_printer_t *printer,		// I - Printer
-    pappl_client_t  *client)		// I - Client
-{
-  int			i;		// Looping var
-  pappl_preason_t	reason,		// Current reason
-			printer_reasons;// Printer state reasons
-  ipp_pstate_t		printer_state;	// Printer state
-  int			printer_jobs;	// Number of queued jobs
-  static const char * const states[] =	// State strings
-  {
-    "Idle",
-    "Printing",
-    "Stopped"
-  };
-  static const char * const reasons[] =	// Reason strings
-  {
-    "Other",
-    "Cover Open",
-    "Tray Missing",
-    "Out of Ink",
-    "Low Ink",
-    "Waste Tank Almost Full",
-    "Waste Tank Full",
-    "Media Empty",
-    "Media Jam",
-    "Media Low",
-    "Media Needed",
-    "Too Many Jobs",
-    "Out of Toner",
-    "Low Toner"
-  };
-
-
-  printer_jobs    = papplPrinterGetActiveJobs(printer);
-  printer_state   = papplPrinterGetState(printer);
-  printer_reasons = papplPrinterGetReasons(printer);
-
-  if (!strcmp(client->uri, "/") && (client->system->options & PAPPL_SOPTIONS_MULTI_QUEUE))
-    papplClientHTMLPrintf(client,
-			  "          <h2 class=\"title\"><a href=\"%s/\">%s</a> <a class=\"btn\" href=\"https://%s:%d%s/delete\">Delete</a></h2>\n", printer->uriname, printer->name, client->host_field, client->host_port, printer->uriname);
-  else
-    papplClientHTMLPuts(client, "          <h1 class=\"title\">Status</h1>\n");
-
-  papplClientHTMLPrintf(client,
-			"          <p><img class=\"%s\" src=\"%s/icon-md.png\">%s, %d %s", ippEnumString("printer-state", printer_state), printer->uriname, states[printer_state - IPP_PSTATE_IDLE], printer_jobs, printer_jobs == 1 ? "job" : "jobs");
-
-  for (i = 0, reason = PAPPL_PREASON_OTHER; reason <= PAPPL_PREASON_TONER_LOW; i ++, reason *= 2)
-  {
-    if (printer_reasons & reason)
-      papplClientHTMLPrintf(client, ", %s", reasons[i]);
-  }
-  papplClientHTMLPrintf(client,
-                        ".</p>\n"
-                        "          <div class=\"btn\"><a class=\"btn\" href=\"%s/media\">Media</a> <a class=\"btn\" href=\"%s/printing\">Printing Defaults</a>", printer->uriname, printer->uriname);
-  if (printer->driver_data.has_supplies)
-    papplClientHTMLPrintf(client, " <a class=\"btn\" href=\"%s/supplies\">Supplies</a>", printer->uriname);
-
-  if (printer->driver_data.identify_supported)
-  {
-    papplClientHTMLStartForm(client, client->uri, false);
-    papplClientHTMLPrintf(client, "<input type=\"hidden\" name=\"action\" value=\"identify-printer\"><input type=\"submit\" value=\"Identify Printer\"></form>");
-  }
-
-  if (printer->driver_data.testpage)
-  {
-    papplClientHTMLStartForm(client, client->uri, false);
-    papplClientHTMLPrintf(client, "<input type=\"hidden\" name=\"action\" value=\"print-test-page\"><input type=\"submit\" value=\"Print Test Page\"></form>");
-  }
-
-  if (strcmp(client->uri, "/") && (client->system->options & PAPPL_SOPTIONS_MULTI_QUEUE))
-    papplClientHTMLPrintf(client, " <a class=\"btn\" href=\"https://%s:%d%s/delete\">Delete Printer</a>", client->host_field, client->host_port, printer->uriname);
-
-  papplClientHTMLPuts(client, "<br clear=\"all\"></div>\n");
-}
 
 
 //
@@ -135,7 +51,7 @@ _papplPrinterWebCancelAllJobs(
     {
       status = "Invalid form data.";
     }
-    else if (!papplClientValidateForm(client, num_form, form))
+    else if (!papplClientIsValidForm(client, num_form, form))
     {
       status = "Invalid form submission.";
     }
@@ -153,7 +69,7 @@ _papplPrinterWebCancelAllJobs(
     cupsFreeOptions(num_form, form);
   }
 
-  printer_header(client, printer, "Cancel All Jobs", 0, NULL, NULL);
+  papplClientHTMLPrinterHeader(client, printer, "Cancel All Jobs", 0, NULL, NULL);
 
   if (status)
     papplClientHTMLPrintf(client, "<div class=\"banner\">%s</div>\n", status);
@@ -221,7 +137,7 @@ _papplPrinterWebCancelJob(
     {
       status = "Invalid form data.";
     }
-    else if (!papplClientValidateForm(client, num_form, form))
+    else if (!papplClientIsValidForm(client, num_form, form))
     {
       status = "Invalid form submission.";
     }
@@ -251,7 +167,7 @@ _papplPrinterWebCancelJob(
     cupsFreeOptions(num_form, form);
   }
 
-  printer_header(client, printer, "Cancel Job", 0, NULL, NULL);
+  papplClientHTMLPrinterHeader(client, printer, "Cancel Job", 0, NULL, NULL);
 
   if (status)
     papplClientHTMLPrintf(client, "<div class=\"banner\">%s</div>\n", status);
@@ -296,7 +212,7 @@ _papplPrinterWebConfig(
     {
       status = "Invalid form data.";
     }
-    else if (!papplClientValidateForm(client, num_form, form))
+    else if (!papplClientIsValidForm(client, num_form, form))
     {
       status = "Invalid form submission.";
     }
@@ -313,13 +229,13 @@ _papplPrinterWebConfig(
     cupsFreeOptions(num_form, form);
   }
 
-  printer_header(client, printer, "Configuration", 0, NULL, NULL);
+  papplClientHTMLPrinterHeader(client, printer, "Configuration", 0, NULL, NULL);
   if (status)
     papplClientHTMLPrintf(client, "<div class=\"banner\">%s</div>\n", status);
 
   _papplClientHTMLInfo(client, true, papplPrinterGetDNSSDName(printer, dns_sd_name, sizeof(dns_sd_name)), papplPrinterGetLocation(printer, location, sizeof(location)), papplPrinterGetGeoLocation(printer, geo_location, sizeof(geo_location)), papplPrinterGetOrganization(printer, organization, sizeof(organization)), papplPrinterGetOrganizationalUnit(printer, org_unit, sizeof(org_unit)), papplPrinterGetContact(printer, &contact));
 
-  printer_footer(client);
+  papplClientHTMLPrinterFooter(client);
 }
 
 
@@ -399,7 +315,7 @@ _papplPrinterWebDefaults(
     pappl_printer_t *printer)		// I - Printer
 {
   int			i, j;		// Looping vars
-  pappl_pdriver_data_t	data;		// Driver data
+  pappl_pr_driver_data_t data;		// Driver data
   const char		*keyword;	// Current keyword
   char			text[256];	// Localized text for keyword
   const char		*status = NULL;	// Status message, if any
@@ -426,18 +342,20 @@ _papplPrinterWebDefaults(
   if (!papplClientHTMLAuthorize(client))
     return;
 
-  papplPrinterGetPrintDriverData(printer, &data);
+  papplPrinterGetDriverData(printer, &data);
 
   if (client->operation == HTTP_STATE_POST)
   {
     int			num_form = 0;	// Number of form variable
     cups_option_t	*form = NULL;	// Form variables
+    int			num_vendor = 0;	// Number of vendor options
+    cups_option_t	*vendor = NULL;	// Vendor options
 
     if ((num_form = papplClientGetForm(client, &form)) == 0)
     {
       status = "Invalid form data.";
     }
-    else if (!papplClientValidateForm(client, num_form, form))
+    else if (!papplClientIsValidForm(client, num_form, form))
     {
       status = "Invalid form submission.";
     }
@@ -446,7 +364,19 @@ _papplPrinterWebDefaults(
       const char	*value;		// Value of form variable
 
       if ((value = cupsGetOption("orientation-requested", num_form, form)) != NULL)
-        data.orient_default = atoi(value);
+        data.orient_default = (ipp_orient_t)atoi(value);
+
+      if ((value = cupsGetOption("output-bin", num_form, form)) != NULL)
+      {
+        for (i = 0; i < data.num_bin; i ++)
+        {
+          if (!strcmp(data.bin[i], value))
+          {
+            data.bin_default = i;
+            break;
+          }
+	}
+      }
 
       if ((value = cupsGetOption("print-color-mode", num_form, form)) != NULL)
         data.color_default = _papplColorModeValue(value);
@@ -458,7 +388,7 @@ _papplPrinterWebDefaults(
         data.darkness_configured = atoi(value);
 
       if ((value = cupsGetOption("print-quality", num_form, form)) != NULL)
-        data.quality_default = ippEnumValue("print-quality", value);
+        data.quality_default = (ipp_quality_t)ippEnumValue("print-quality", value);
 
       if ((value = cupsGetOption("print-scaling", num_form, form)) != NULL)
         data.scaling_default = _papplScalingValue(value);
@@ -487,7 +417,21 @@ _papplPrinterWebDefaults(
 	}
       }
 
-      papplPrinterSetPrintDefaults(printer, &data);
+      for (i = 0; i < data.num_vendor; i ++)
+      {
+        char	supattr[128];		// xxx-supported
+
+        snprintf(supattr, sizeof(supattr), "%s-supported", data.vendor[i]);
+
+        if ((value = cupsGetOption(data.vendor[i], num_form, form)) != NULL)
+	  num_vendor = cupsAddOption(data.vendor[i], value, num_vendor, &vendor);
+	else if (ippFindAttribute(printer->driver_attrs, supattr, IPP_TAG_BOOLEAN))
+	  num_vendor = cupsAddOption(data.vendor[i], "false", num_vendor, &vendor);
+      }
+
+      papplPrinterSetDriverDefaults(printer, &data, num_vendor, vendor);
+
+      cupsFreeOptions(num_vendor, vendor);
 
       status = "Changes saved.";
     }
@@ -495,7 +439,7 @@ _papplPrinterWebDefaults(
     cupsFreeOptions(num_form, form);
   }
 
-  printer_header(client, printer, "Printing Defaults", 0, NULL, NULL);
+  papplClientHTMLPrinterHeader(client, printer, "Printing Defaults", 0, NULL, NULL);
   if (status)
     papplClientHTMLPrintf(client, "<div class=\"banner\">%s</div>\n", status);
 
@@ -535,7 +479,7 @@ _papplPrinterWebDefaults(
   papplClientHTMLPuts(client, "              <tr><th>Orientation:</th><td>");
   for (i = IPP_ORIENT_PORTRAIT; i <= IPP_ORIENT_NONE; i ++)
   {
-    papplClientHTMLPrintf(client, "<label class=\"image\"><input type=\"radio\" name=\"orientation-requested\" value=\"%d\"%s> <img src=\"data:image/svg+xml,%s\" alt=\"%s\"></label> ", i, data.orient_default == i ? " checked" : "", orient_svgs[i - IPP_ORIENT_PORTRAIT], orients[i - IPP_ORIENT_PORTRAIT]);
+    papplClientHTMLPrintf(client, "<label class=\"image\"><input type=\"radio\" name=\"orientation-requested\" value=\"%d\"%s> <img src=\"data:image/svg+xml,%s\" alt=\"%s\"></label> ", i, data.orient_default == (ipp_orient_t)i ? " checked" : "", orient_svgs[i - IPP_ORIENT_PORTRAIT], orients[i - IPP_ORIENT_PORTRAIT]);
   }
   papplClientHTMLPuts(client, "</td></tr>\n");
 
@@ -549,10 +493,10 @@ _papplPrinterWebDefaults(
   {
     for (i = PAPPL_COLOR_MODE_AUTO; i <= PAPPL_COLOR_MODE_PROCESS_MONOCHROME; i *= 2)
     {
-      if ((data.color_supported & i) && i != PAPPL_COLOR_MODE_AUTO_MONOCHROME)
+      if ((data.color_supported & (pappl_color_mode_t)i) && i != PAPPL_COLOR_MODE_AUTO_MONOCHROME)
       {
-	keyword = _papplColorModeString(i);
-	papplClientHTMLPrintf(client, "<label><input type=\"radio\" name=\"print-color-mode\" value=\"%s\"%s> %s</label> ", keyword, i == data.color_default ? " checked" : "", localize_keyword("print-color-mode", keyword, text, sizeof(text)));
+	keyword = _papplColorModeString((pappl_color_mode_t)i);
+	papplClientHTMLPrintf(client, "<label><input type=\"radio\" name=\"print-color-mode\" value=\"%s\"%s> %s</label> ", keyword, (pappl_color_mode_t)i == data.color_default ? " checked" : "", localize_keyword("print-color-mode", keyword, text, sizeof(text)));
       }
     }
   }
@@ -564,11 +508,29 @@ _papplPrinterWebDefaults(
     papplClientHTMLPuts(client, "              <tr><th>2-Sided Printing:</th><td>");
     for (i = PAPPL_SIDES_ONE_SIDED; i <= PAPPL_SIDES_TWO_SIDED_SHORT_EDGE; i *= 2)
     {
-      if (data.sides_supported & i)
+      if (data.sides_supported & (pappl_sides_t)i)
       {
-	keyword = _papplSidesString(i);
-	papplClientHTMLPrintf(client, "<label><input type=\"radio\" name=\"sides\" value=\"%s\"%s> %s</label> ", keyword, i == data.sides_default ? " checked" : "", localize_keyword("sides", keyword, text, sizeof(text)));
+	keyword = _papplSidesString((pappl_sides_t)i);
+	papplClientHTMLPrintf(client, "<label><input type=\"radio\" name=\"sides\" value=\"%s\"%s> %s</label> ", keyword, (pappl_sides_t)i == data.sides_default ? " checked" : "", localize_keyword("sides", keyword, text, sizeof(text)));
       }
+    }
+    papplClientHTMLPuts(client, "</td></tr>\n");
+  }
+
+  // output-bin-default
+  if (data.num_bin > 0)
+  {
+    papplClientHTMLPuts(client, "              <tr><th>Output Tray:</th><td>");
+    if (data.num_bin > 1)
+    {
+      papplClientHTMLPuts(client, "<select name=\"output-bin\">");
+      for (i = 0; i < data.num_bin; i ++)
+	papplClientHTMLPrintf(client, "<option value=\"%s\"%s>%s</option>", data.bin[i], i == data.bin_default ? " selected" : "", localize_keyword("output-bin", data.bin[i], text, sizeof(text)));
+      papplClientHTMLPuts(client, "</select>");
+    }
+    else
+    {
+      papplClientHTMLPrintf(client, "%s", localize_keyword("output-bin", data.bin[data.bin_default], text, sizeof(text)));
     }
     papplClientHTMLPuts(client, "</td></tr>\n");
   }
@@ -578,7 +540,7 @@ _papplPrinterWebDefaults(
   for (i = IPP_QUALITY_DRAFT; i <= IPP_QUALITY_HIGH; i ++)
   {
     keyword = ippEnumString("print-quality", i);
-    papplClientHTMLPrintf(client, "<label><input type=\"radio\" name=\"print-quality\" value=\"%s\"%s> %s</label> ", keyword, i == data.quality_default ? " checked" : "", localize_keyword("print-quality", keyword, text, sizeof(text)));
+    papplClientHTMLPrintf(client, "<label><input type=\"radio\" name=\"print-quality\" value=\"%s\"%s> %s</label> ", keyword, (ipp_quality_t)i == data.quality_default ? " checked" : "", localize_keyword("print-quality", keyword, text, sizeof(text)));
   }
   papplClientHTMLPuts(client, "</select></td></tr>\n");
 
@@ -612,8 +574,8 @@ _papplPrinterWebDefaults(
   papplClientHTMLPuts(client, "              <tr><th>Optimize For:</th><td><select name=\"print-content-optimize\">");
   for (i = PAPPL_CONTENT_AUTO; i <= PAPPL_CONTENT_TEXT_AND_GRAPHIC; i *= 2)
   {
-    keyword = _papplContentString(i);
-    papplClientHTMLPrintf(client, "<option value=\"%s\"%s>%s</option>", keyword, i == data.content_default ? " selected" : "", localize_keyword("print-content-optimize", keyword, text, sizeof(text)));
+    keyword = _papplContentString((pappl_content_t)i);
+    papplClientHTMLPrintf(client, "<option value=\"%s\"%s>%s</option>", keyword, (pappl_content_t)i == data.content_default ? " selected" : "", localize_keyword("print-content-optimize", keyword, text, sizeof(text)));
   }
   papplClientHTMLPuts(client, "</select></td></tr>\n");
 
@@ -621,8 +583,8 @@ _papplPrinterWebDefaults(
   papplClientHTMLPuts(client, "              <tr><th>Scaling:</th><td><select name=\"print-scaling\">");
   for (i = PAPPL_SCALING_AUTO; i <= PAPPL_SCALING_NONE; i *= 2)
   {
-    keyword = _papplScalingString(i);
-    papplClientHTMLPrintf(client, "<option value=\"%s\"%s>%s</option>", keyword, i == data.scaling_default ? " selected" : "", localize_keyword("print-scaling", keyword, text, sizeof(text)));
+    keyword = _papplScalingString((pappl_scaling_t)i);
+    papplClientHTMLPrintf(client, "<option value=\"%s\"%s>%s</option>", keyword, (pappl_scaling_t)i == data.scaling_default ? " selected" : "", localize_keyword("print-scaling", keyword, text, sizeof(text)));
   }
   papplClientHTMLPuts(client, "</select></td></tr>\n");
 
@@ -652,13 +614,91 @@ _papplPrinterWebDefaults(
   }
   papplClientHTMLPuts(client, "</td></tr>\n");
 
+  // Vendor options
+  pthread_rwlock_rdlock(&printer->rwlock);
+
+  for (i = 0; i < data.num_vendor; i ++)
+  {
+    char	defname[128],		// xxx-default name
+		defvalue[1024],		// xxx-default value
+		supname[128];		// xxx-supported name
+    ipp_attribute_t *attr;		// Attribute
+    int		count;			// Number of values
+
+    snprintf(defname, sizeof(defname), "%s-default", data.vendor[i]);
+    snprintf(supname, sizeof(defname), "%s-supported", data.vendor[i]);
+
+    if ((attr = ippFindAttribute(printer->driver_attrs, defname, IPP_TAG_ZERO)) != NULL)
+      ippAttributeString(attr, defvalue, sizeof(defvalue));
+    else
+      defvalue[0] = '\0';
+
+    if ((attr = ippFindAttribute(printer->driver_attrs, supname, IPP_TAG_ZERO)) != NULL)
+    {
+      count = ippGetCount(attr);
+
+      papplClientHTMLPrintf(client, "              <tr><th>%s:</th><td>", data.vendor[i]);
+
+      switch (ippGetValueTag(attr))
+      {
+        case IPP_TAG_BOOLEAN :
+            papplClientHTMLPrintf(client, "<input type=\"checkbox\" name=\"%s\"%s>", data.vendor[i], !strcmp(defvalue, "true") ? " checked" : "");
+            break;
+
+        case IPP_TAG_INTEGER :
+            papplClientHTMLPrintf(client, "<select name=\"%s\">", data.vendor[i]);
+            for (j = 0; j < count; j ++)
+            {
+              int val = ippGetInteger(attr, j);
+
+	      papplClientHTMLPrintf(client, "<option value=\"%d\"%s>%d</option>", val, val == atoi(defvalue) ? " selected" : "", val);
+            }
+            papplClientHTMLPuts(client, "</select>");
+            break;
+
+        case IPP_TAG_RANGE :
+            {
+              int upper, lower = ippGetRange(attr, 0, &upper);
+					// Range
+
+	      papplClientHTMLPrintf(client, "<input type=\"number\" name=\"%s\" min=\"%d\" max=\"%d\" value=\"%s\">", data.vendor[i], lower, upper, defvalue);
+	    }
+            break;
+
+        case IPP_TAG_KEYWORD :
+            papplClientHTMLPrintf(client, "<select name=\"%s\">", data.vendor[i]);
+            for (j = 0; j < count; j ++)
+            {
+              const char *val = ippGetString(attr, j, NULL);
+
+	      papplClientHTMLPrintf(client, "<option value=\"%s\"%s>%s</option>", val, !strcmp(val, defvalue) ? " selected" : "", val);
+            }
+            papplClientHTMLPuts(client, "</select>");
+            break;
+
+	default :
+	    papplClientHTMLPuts(client, "Unsupported value syntax.");
+	    break;
+      }
+
+      papplClientHTMLPuts(client, "</td></tr>\n");
+    }
+    else
+    {
+      // No xxx-supported, so this is just a text field...
+      papplClientHTMLPrintf(client, "              <tr><th>%s:</th><td><input name=\"%s\" value=\"%s\"></td></tr>\n", data.vendor[i], data.vendor[i], defvalue);
+    }
+  }
+
+  pthread_rwlock_unlock(&printer->rwlock);
+
   papplClientHTMLPuts(client,
                       "              <tr><th></th><td><input type=\"submit\" value=\"Save Changes\"></td></tr>\n"
                       "            </tbody>\n"
                       "          </table>"
                       "        </form>\n");
 
-  printer_footer(client);
+  papplClientHTMLPrinterFooter(client);
 }
 
 
@@ -686,7 +726,7 @@ _papplPrinterWebDelete(
     {
       status = "Invalid form data.";
     }
-    else if (!papplClientValidateForm(client, num_form, form))
+    else if (!papplClientIsValidForm(client, num_form, form))
     {
       status = "Invalid form submission.";
     }
@@ -711,7 +751,7 @@ _papplPrinterWebDelete(
     cupsFreeOptions(num_form, form);
   }
 
-  printer_header(client, printer, "Delete Printer", 0, NULL, NULL);
+  papplClientHTMLPrinterHeader(client, printer, "Delete Printer", 0, NULL, NULL);
 
   if (status)
     papplClientHTMLPrintf(client, "          <div class=\"banner\">%s</div>\n", status);
@@ -736,8 +776,7 @@ _papplPrinterWebHome(
   ipp_pstate_t	printer_state;		// Printer state
   char		edit_path[1024];	// Edit configuration URL
   const int	limit = 20;		// Jobs per page
-  int		job_index = 1,		// Job index
-		num_jobs = 0;		// Total Printer jobs
+  int		job_index = 1;		// Job index
 
 
   // Handle POSTs to print a test page...
@@ -751,7 +790,7 @@ _papplPrinterWebHome(
     {
       status = "Invalid form data.";
     }
-    else if (!papplClientValidateForm(client, num_form, form))
+    else if (!papplClientIsValidForm(client, num_form, form))
     {
       status = "Invalid form submission.";
     }
@@ -761,9 +800,9 @@ _papplPrinterWebHome(
     }
     else if (!strcmp(action, "identify-printer"))
     {
-      if (printer->driver_data.identify_supported && printer->driver_data.identify)
+      if (printer->driver_data.identify_supported && printer->driver_data.identify_cb)
       {
-        (printer->driver_data.identify)(printer, printer->driver_data.identify_supported, "Hello.");
+        (printer->driver_data.identify_cb)(printer, printer->driver_data.identify_supported, "Hello.");
 
         status = "Printer identified.";
       }
@@ -780,8 +819,8 @@ _papplPrinterWebHome(
 			*username;	// Username
 
       // Get the testfile to print, if any...
-      if (printer->driver_data.testpage)
-        filename = (printer->driver_data.testpage)(printer, buffer, sizeof(buffer));
+      if (printer->driver_data.testpage_cb)
+        filename = (printer->driver_data.testpage_cb)(printer, buffer, sizeof(buffer));
       else
 	filename = NULL;
 
@@ -821,19 +860,21 @@ _papplPrinterWebHome(
   // Show status...
   printer_state = papplPrinterGetState(printer);
 
-  printer_header(client, printer, NULL, printer_state == IPP_PSTATE_PROCESSING ? 10 : 0, NULL, NULL);
+  papplClientHTMLPrinterHeader(client, printer, NULL, printer_state == IPP_PSTATE_PROCESSING ? 10 : 0, NULL, NULL);
 
   papplClientHTMLPuts(client,
                       "      <div class=\"row\">\n"
                       "        <div class=\"col-6\">\n");
 
-  _papplPrinterIteratorWebCallback(printer, client);
+  _papplPrinterWebIteratorCallback(printer, client);
 
   if (status)
     papplClientHTMLPrintf(client, "<div class=\"banner\">%s</div>\n", status);
 
   snprintf(edit_path, sizeof(edit_path), "%s/config", printer->uriname);
   papplClientHTMLPrintf(client, "          <h1 class=\"title\">Configuration <a class=\"btn\" href=\"https://%s:%d%s\">Change</a></h1>\n", client->host_field, client->host_port, edit_path);
+
+  _papplClientHTMLPutLinks(client, printer->links, PAPPL_LOPTIONS_CONFIGURATION);
 
   _papplClientHTMLInfo(client, false, printer->dns_sd_name, printer->location, printer->geo_location, printer->organization, printer->org_unit, &printer->contact);
 
@@ -845,12 +886,14 @@ _papplPrinterWebHome(
 			"        <div class=\"col-6\">\n"
 			"          <h1 class=\"title\"><a href=\"%s/jobs\">Jobs</a>", printer->uriname);
 
-  if ((num_jobs = papplPrinterGetNumberOfJobs(printer)) > 0)
+  if (papplPrinterGetNumberOfJobs(printer) > 0)
   {
     if (cupsArrayCount(printer->active_jobs) > 0)
       papplClientHTMLPrintf(client, " <a class=\"btn\" href=\"https://%s:%d%s/cancelall\">Cancel All Jobs</a></h1>\n", client->host_field, client->host_port, printer->uriname);
     else
       papplClientHTMLPuts(client, "</h1>\n");
+
+    _papplClientHTMLPutLinks(client, printer->links, PAPPL_LOPTIONS_JOB);
 
     job_pager(client, printer, job_index, limit);
 
@@ -870,11 +913,102 @@ _papplPrinterWebHome(
     job_pager(client, printer, job_index, limit);
   }
   else
-    papplClientHTMLPuts(client,
-			"</h1>\n"
-                        "        <p>No jobs in history.</p>\n");
+  {
+    papplClientHTMLPuts(client, "</h1>\n");
+    _papplClientHTMLPutLinks(client, printer->links, PAPPL_LOPTIONS_JOB);
+    papplClientHTMLPuts(client, "        <p>No jobs in history.</p>\n");
+  }
 
-  printer_footer(client);
+  papplClientHTMLPrinterFooter(client);
+}
+
+
+//
+// '_papplPrinterWebIteratorCallback()' - Show the printer status.
+//
+
+void
+_papplPrinterWebIteratorCallback(
+    pappl_printer_t *printer,		// I - Printer
+    pappl_client_t  *client)		// I - Client
+{
+  int			i;		// Looping var
+  pappl_preason_t	reason,		// Current reason
+			printer_reasons;// Printer state reasons
+  ipp_pstate_t		printer_state;	// Printer state
+  int			printer_jobs;	// Number of queued jobs
+  char			uri[256];	// Form URI
+  static const char * const states[] =	// State strings
+  {
+    "Idle",
+    "Printing",
+    "Stopped"
+  };
+  static const char * const reasons[] =	// Reason strings
+  {
+    "Other",
+    "Cover Open",
+    "Tray Missing",
+    "Out of Ink",
+    "Low Ink",
+    "Waste Tank Almost Full",
+    "Waste Tank Full",
+    "Media Empty",
+    "Media Jam",
+    "Media Low",
+    "Media Needed",
+    "Too Many Jobs",
+    "Out of Toner",
+    "Low Toner"
+  };
+
+
+  printer_jobs    = papplPrinterGetNumberOfActiveJobs(printer);
+  printer_state   = papplPrinterGetState(printer);
+  printer_reasons = papplPrinterGetReasons(printer);
+
+  snprintf(uri, sizeof(uri), "%s/", printer->uriname);
+
+  if (!strcmp(client->uri, "/") && (client->system->options & PAPPL_SOPTIONS_MULTI_QUEUE))
+    papplClientHTMLPrintf(client,
+			  "          <h2 class=\"title\"><a href=\"%s/\">%s</a> <a class=\"btn\" href=\"https://%s:%d%s/delete\">Delete</a></h2>\n", printer->uriname, printer->name, client->host_field, client->host_port, printer->uriname);
+  else
+    papplClientHTMLPuts(client, "          <h1 class=\"title\">Status</h1>\n");
+
+  papplClientHTMLPrintf(client,
+			"          <p><img class=\"%s\" src=\"%s/icon-md.png\">%s, %d %s", ippEnumString("printer-state", (int)printer_state), printer->uriname, states[printer_state - IPP_PSTATE_IDLE], printer_jobs, printer_jobs == 1 ? "job" : "jobs");
+  for (i = 0, reason = PAPPL_PREASON_OTHER; reason <= PAPPL_PREASON_TONER_LOW; i ++, reason *= 2)
+  {
+    if (printer_reasons & reason)
+      papplClientHTMLPrintf(client, ", %s", reasons[i]);
+  }
+
+  if (strcmp(printer->name, printer->driver_data.make_and_model))
+    papplClientHTMLPrintf(client, ".<br>%s</p>\n", printer->driver_data.make_and_model);
+  else
+    papplClientHTMLPuts(client, ".</p>\n");
+
+  papplClientHTMLPuts(client, "          <div class=\"btn\">");
+  _papplClientHTMLPutLinks(client, printer->links, PAPPL_LOPTIONS_STATUS);
+  if (printer->driver_data.has_supplies)
+    papplClientHTMLPrintf(client, " <a class=\"btn\" href=\"%s/supplies\">Supplies</a>", printer->uriname);
+
+  if (printer->driver_data.identify_supported)
+  {
+    papplClientHTMLStartForm(client, uri, false);
+    papplClientHTMLPrintf(client, "<input type=\"hidden\" name=\"action\" value=\"identify-printer\"><input type=\"submit\" value=\"Identify Printer\"></form>");
+  }
+
+  if (printer->driver_data.testpage_cb)
+  {
+    papplClientHTMLStartForm(client, uri, false);
+    papplClientHTMLPrintf(client, "<input type=\"hidden\" name=\"action\" value=\"print-test-page\"><input type=\"submit\" value=\"Print Test Page\"></form>");
+  }
+
+  if (strcmp(client->uri, "/") && (client->system->options & PAPPL_SOPTIONS_MULTI_QUEUE))
+    papplClientHTMLPrintf(client, " <a class=\"btn\" href=\"https://%s:%d%s/delete\">Delete Printer</a>", client->host_field, client->host_port, printer->uriname);
+
+  papplClientHTMLPuts(client, "<br clear=\"all\"></div>\n");
 }
 
 
@@ -916,11 +1050,11 @@ _papplPrinterWebJobs(
 
     httpAssembleURIf(HTTP_URI_CODING_ALL, url, sizeof(url), "https", NULL, client->host_field, client->host_port, "%s/cancelall", printer->uriname);
 
-    printer_header(client, printer, "Jobs", printer_state == IPP_PSTATE_PROCESSING ? 10 : 0, "Cancel All Jobs", url);
+    papplClientHTMLPrinterHeader(client, printer, "Jobs", printer_state == IPP_PSTATE_PROCESSING ? 10 : 0, "Cancel All Jobs", url);
   }
   else
   {
-    printer_header(client, printer, "Jobs", printer_state == IPP_PSTATE_PROCESSING ? 10 : 0, NULL, NULL);
+    papplClientHTMLPrinterHeader(client, printer, "Jobs", printer_state == IPP_PSTATE_PROCESSING ? 10 : 0, NULL, NULL);
   }
 
   if (papplPrinterGetNumberOfJobs(printer) > 0)
@@ -945,7 +1079,7 @@ _papplPrinterWebJobs(
   else
     papplClientHTMLPuts(client, "        <p>No jobs in history.</p>\n");
 
-  printer_footer(client);
+  papplClientHTMLPrinterFooter(client);
 }
 
 
@@ -959,7 +1093,7 @@ _papplPrinterWebMedia(
     pappl_printer_t *printer)		// I - Printer
 {
   int			i;		// Looping var
-  pappl_pdriver_data_t	data;		// Driver data
+  pappl_pr_driver_data_t data;		// Driver data
   char			name[32],	// Prefix (readyN)
 			text[256];	// Localized media-souce name
   const char		*status = NULL;	// Status message, if any
@@ -968,7 +1102,7 @@ _papplPrinterWebMedia(
   if (!papplClientHTMLAuthorize(client))
     return;
 
-  papplPrinterGetPrintDriverData(printer, &data);
+  papplPrinterGetDriverData(printer, &data);
 
   if (client->operation == HTTP_STATE_POST)
   {
@@ -979,7 +1113,7 @@ _papplPrinterWebMedia(
     {
       status = "Invalid form data.";
     }
-    else if (!papplClientValidateForm(client, num_form, form))
+    else if (!papplClientIsValidForm(client, num_form, form))
     {
       status = "Invalid form submission.";
     }
@@ -1065,7 +1199,7 @@ _papplPrinterWebMedia(
     cupsFreeOptions(num_form, form);
   }
 
-  printer_header(client, printer, "Media", 0, NULL, NULL);
+  papplClientHTMLPrinterHeader(client, printer, "Media", 0, NULL, NULL);
   if (status)
     papplClientHTMLPrintf(client, "<div class=\"banner\">%s</div>\n", status);
 
@@ -1098,7 +1232,7 @@ _papplPrinterWebMedia(
 		      "    divelem.style = 'display: none;';\n"
 		      "}</script>\n");
 
-  printer_footer(client);
+  papplClientHTMLPrinterFooter(client);
 }
 
 
@@ -1140,7 +1274,7 @@ _papplPrinterWebSupplies(
 
   num_supply = papplPrinterGetSupplies(printer, (int)(sizeof(supply) / sizeof(supply[0])), supply);
 
-  printer_header(client, printer, "Supplies", 0, NULL, NULL);
+  papplClientHTMLPrinterHeader(client, printer, "Supplies", 0, NULL, NULL);
 
   papplClientHTMLPuts(client,
 		      "          <table class=\"meter\" summary=\"Supplies\">\n"
@@ -1161,7 +1295,7 @@ _papplPrinterWebSupplies(
                       "            </tfoot>\n"
                       "          </table>\n");
 
-  printer_footer(client);
+  papplClientHTMLPrinterFooter(client);
 }
 
 
@@ -1280,7 +1414,7 @@ localize_keyword(
   char	*ptr;				// Pointer into string
 
 
-  // TODO: Do real localization of keywords...
+  // TODO: Do real localization of keywords (Issue #58)
   if (!strcmp(keyword, "bi-level"))
   {
     strlcpy(buffer, "B&W (no shading)", bufsize);
@@ -1359,13 +1493,13 @@ localize_keyword(
   else
   {
     strlcpy(buffer, keyword, bufsize);
-    *buffer = toupper(*buffer);
+    *buffer = (char)toupper(*buffer);
     for (ptr = buffer + 1; *ptr; ptr ++)
     {
       if (*ptr == '-' && ptr[1])
       {
 	*ptr++ = ' ';
-	*ptr   = toupper(*ptr);
+	*ptr   = (char)toupper(*ptr);
       }
     }
   }
@@ -1415,11 +1549,11 @@ localize_media(
 
 static void
 media_chooser(
-    pappl_client_t       *client,	// I - Client
-    pappl_pdriver_data_t *driver_data,	// I - Driver data
-    const char           *title,	// I - Label/title
-    const char           *name,		// I - Base name
-    pappl_media_col_t    *media)	// I - Current media values
+    pappl_client_t         *client,	// I - Client
+    pappl_pr_driver_data_t *driver_data,// I - Driver data
+    const char             *title,	// I - Label/title
+    const char             *name,	// I - Base name
+    pappl_media_col_t      *media)	// I - Current media values
 {
   int		i,			// Looping var
 		cur_index = 0,		// Current size index
@@ -1513,7 +1647,7 @@ media_chooser(
 
   if (driver_data->borderless)
   {
-    papplClientHTMLPrintf(client, "                <input type=\"checkbox\" name=\"%s-borderless\" value=\"%s\">&nbsp;Borderless\n", name, (!media->bottom_margin && !media->left_margin && !media->right_margin && !media->top_margin) ? "checked" : "");
+    papplClientHTMLPrintf(client, "                <input type=\"checkbox\" name=\"%s-borderless\"%s>&nbsp;Borderless\n", name, (!media->bottom_margin && !media->left_margin && !media->right_margin && !media->top_margin) ? " checked" : "");
   }
 
   // media-left/top-offset (if needed)
@@ -1541,12 +1675,12 @@ media_chooser(
     papplClientHTMLPrintf(client, "                <select name=\"%s-tracking\">", name);
     for (i = PAPPL_MEDIA_TRACKING_CONTINUOUS; i <= PAPPL_MEDIA_TRACKING_WEB; i *= 2)
     {
-      const char *val = _papplMediaTrackingString(i);
+      const char *val = _papplMediaTrackingString((pappl_media_tracking_t)i);
 
       if (!(driver_data->tracking_supported & i))
 	continue;
 
-      papplClientHTMLPrintf(client, "<option value=\"%s\"%s>%s</option>", val, i == media->tracking ? " selected" : "", localize_keyword("media-tracking", val, text, sizeof(text)));
+      papplClientHTMLPrintf(client, "<option value=\"%s\"%s>%s</option>", val, (pappl_media_tracking_t)i == media->tracking ? " selected" : "", localize_keyword("media-tracking", val, text, sizeof(text)));
     }
     papplClientHTMLPuts(client, "</select>\n");
   }
@@ -1558,89 +1692,6 @@ media_chooser(
     papplClientHTMLPrintf(client, "<option value=\"%s\"%s>%s</option>", driver_data->type[i], !strcmp(driver_data->type[i], media->type) ? " selected" : "", localize_keyword("media-type", driver_data->type[i], text, sizeof(text)));
   }
   papplClientHTMLPrintf(client, "</select></td></tr>\n");
-}
-
-
-//
-// 'printer_footer()' - Show the footer for printers...
-//
-
-static void
-printer_footer(pappl_client_t *client)	// I - Client
-{
-  papplClientHTMLPuts(client,
-                      "          </div>\n"
-                      "        </div>\n"
-                      "      </div>\n");
-  papplClientHTMLFooter(client);
-}
-
-
-//
-// 'printer_header()' - Show the sub-header for printers, as needed...
-//
-
-static void
-printer_header(
-    pappl_client_t  *client,		// I - Client
-    pappl_printer_t *printer,		// I - Printer
-    const char      *title,		// I - Title
-    int             refresh,		// I - Refresh time in seconds or 0 for none
-    const char      *label,		// I - Button label or `NULL` for none
-    const char      *path_or_url)	// I - Button path or `NULL` for none
-{
-  if (!papplClientRespondHTTP(client, HTTP_STATUS_OK, NULL, "text/html", 0, 0))
-    return;
-
-  if (printer->system->options & PAPPL_SOPTIONS_MULTI_QUEUE)
-  {
-    // Multi-queue mode, need to add the printer name to the title...
-    if (title)
-    {
-      char	full_title[1024];	// Full title
-
-      snprintf(full_title, sizeof(full_title), "%s - %s", title, printer->name);
-      papplClientHTMLHeader(client, full_title, refresh);
-    }
-    else
-    {
-      papplClientHTMLHeader(client, printer->name, refresh);
-    }
-  }
-  else
-  {
-    // Single queue mode - the function will automatically add the printer name...
-    papplClientHTMLHeader(client, title, refresh);
-  }
-
-  if (printer->system->options & PAPPL_SOPTIONS_MULTI_QUEUE)
-  {
-    pthread_rwlock_rdlock(&printer->rwlock);
-    _papplClientHTMLPutLinks(client, printer->links);
-    pthread_rwlock_unlock(&printer->rwlock);
-  }
-  else if (client->system->versions[0].sversion[0])
-    papplClientHTMLPrintf(client,
-			  "    <div class=\"header2\">\n"
-			  "      <div class=\"row\">\n"
-			  "        <div class=\"col-12 nav\">\n"
-			  "          Version %s\n"
-			  "        </div>\n"
-			  "      </div>\n"
-			  "    </div>\n", client->system->versions[0].sversion);
-
-  papplClientHTMLPuts(client, "    <div class=\"content\">\n");
-
-  if (title)
-  {
-    papplClientHTMLPrintf(client,
-			  "      <div class=\"row\">\n"
-			  "        <div class=\"col-12\">\n"
-			  "          <h1 class=\"title\">%s", title);
-    if (label && path_or_url)
-      papplClientHTMLPrintf(client, " <a class=\"btn\" href=\"%s\">%s</a>", path_or_url, label);
-    papplClientHTMLPuts(client, "</h1>\n");
-  }
 }
 
 

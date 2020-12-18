@@ -55,11 +55,15 @@ struct _pappl_client_s			// Client data
 //
 
 extern void		_papplClientCleanTempFiles(pappl_client_t *client) _PAPPL_PRIVATE;
+extern pappl_client_t	*_papplClientCreate(pappl_system_t *system, int sock) _PAPPL_PRIVATE;
 extern char		*_papplClientCreateTempFile(pappl_client_t *client, const void *data, size_t datasize) _PAPPL_PRIVATE;
+extern void		_papplClientDelete(pappl_client_t *client) _PAPPL_PRIVATE;
+extern void		_papplClientFlushDocumentData(pappl_client_t *client) _PAPPL_PRIVATE;
+extern bool		_papplClientHaveDocumentData(pappl_client_t *client) _PAPPL_PRIVATE;
 extern bool		_papplClientProcessHTTP(pappl_client_t *client) _PAPPL_PRIVATE;
 extern bool		_papplClientProcessIPP(pappl_client_t *client) _PAPPL_PRIVATE;
 extern void		*_papplClientRun(pappl_client_t *client) _PAPPL_PRIVATE;
 extern void		_papplClientHTMLInfo(pappl_client_t *client, bool is_form, const char *dns_sd_name, const char *location, const char *geo_location, const char *organization, const char *org_unit, pappl_contact_t *contact);
-extern void		_papplClientHTMLPutLinks(pappl_client_t *client, cups_array_t *links);
+extern void		_papplClientHTMLPutLinks(pappl_client_t *client, cups_array_t *links, pappl_loptions_t which);
 
 #endif // !_PAPPL_CLIENT_PRIVATE_H_

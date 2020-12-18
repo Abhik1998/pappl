@@ -13,12 +13,19 @@ AC_PREREQ(2.60)
 
 
 dnl Package name and version...
-AC_INIT([pappl], [0.9], [https://github.com/michaelrsweet/pappl/issues], [pappl], [https://www.msweet.org/pappl])
+AC_INIT([pappl], [1.0.0], [https://github.com/michaelrsweet/pappl/issues], [pappl], [https://www.msweet.org/pappl])
 AC_CONFIG_HEADERS([config.h])
 
 PAPPL_VERSION="AC_PACKAGE_VERSION"
+PAPPL_VERSION_MAJOR="`echo AC_PACKAGE_VERSION | awk -F. '{print $1}'`"
+PAPPL_VERSION_MINOR="`echo AC_PACKAGE_VERSION | awk -F. '{printf("%d\n",$2);}'`"
+
 AC_SUBST([PAPPL_VERSION])
+AC_SUBST([PAPPL_VERSION_MAJOR])
+AC_SUBST([PAPPL_VERSION_MINOR])
 AC_DEFINE_UNQUOTED([PAPPL_VERSION], "$PAPPL_VERSION", [Version number])
+AC_DEFINE_UNQUOTED([PAPPL_VERSION_MAJOR], $PAPPL_VERSION_MAJOR, [Major version number])
+AC_DEFINE_UNQUOTED([PAPPL_VERSION_MINOR], $PAPPL_VERSION_MINOR, [Minor version number])
 
 
 dnl Get the build and host platforms and split the host_os value
@@ -48,10 +55,6 @@ AC_PROG_CC(clang cc gcc)
 AC_PROG_RANLIB
 AC_PATH_PROG(AR,ar)
 AC_PATH_PROGS(CODE_SIGN, codesign true)
-AC_MSG_CHECKING(for install-sh script)
-INSTALL="`pwd`/install-sh"
-AC_SUBST(INSTALL)
-AC_MSG_RESULT(using $INSTALL)
 AC_PATH_PROG(MKDIR,mkdir)
 AC_PATH_PROG(RM,rm)
 AC_PATH_PROG(LN,ln)
@@ -108,11 +111,6 @@ fi
 
 dnl String functions...
 AC_CHECK_FUNCS(strlcpy)
-
-
-dnl Random number support...
-AC_CHECK_HEADER(sys/random.h, AC_DEFINE([HAVE_SYS_RANDOM_H], 1, [Have <sys/random.h> header?]))
-AC_CHECK_FUNCS(arc4random getrandom gnutls_rnd)
 
 
 dnl POSIX threads...
@@ -193,38 +191,64 @@ fi
 
 
 dnl GNU TLS...
+PKGCONFIG_GNUTLS=""
+AC_SUBST(PKGCONFIG_GNUTLS)
+
 if test "x$PKGCONFIG" != x; then
 	if $PKGCONFIG --exists gnutls; then
 		CFLAGS="$CFLAGS `$PKGCONFIG --cflags gnutls`"
 		LIBS="$LIBS `$PKGCONFIG --libs gnutls`"
 		AC_DEFINE(HAVE_GNUTLS)
+		PKGCONFIG_GNUTLS="gnutls >= 3.0,"
 	fi
 fi
 
 
-dnl libjpeg...
-AC_ARG_ENABLE(libjpeg, [  --enable-libjpeg        use libjpeg for JPEG printing])
+dnl Random number support...
+AC_CHECK_HEADER(sys/random.h, AC_DEFINE([HAVE_SYS_RANDOM_H], 1, [Have <sys/random.h> header?]))
+AC_CHECK_FUNCS(arc4random getrandom gnutls_rnd)
 
-if test "x$PKGCONFIG" != x -a x$enable_libjpeg != xno; then
-	AC_MSG_CHECKING([for libjpeg])
-	if $PKGCONFIG --exists libjpeg; then
-		AC_MSG_RESULT([yes]);
-		AC_DEFINE([HAVE_LIBJPEG], 1, [libjpeg])
-		CFLAGS="$CFLAGS `$PKGCONFIG --cflags libjpeg`"
-		LIBS="$LIBS `$PKGCONFIG --libs libjpeg`"
-	else
-		AC_MSG_RESULT([no]);
-		if test x$enable_libjpeg = xyes; then
-			AC_MSG_ERROR([libjpeg-dev 8 or later required for --enable-libjpeg.])
+
+dnl libjpeg...
+AC_ARG_ENABLE(libjpeg, [  --enable-libjpeg        use libjpeg for JPEG printing, default=auto])
+
+PKGCONFIG_LIBJPEG=""
+AC_SUBST(PKGCONFIG_LIBJPEG)
+
+if test x$enable_libjpeg != xno; then
+	have_jpeg=no
+
+	if test "x$PKGCONFIG" != x; then
+		AC_MSG_CHECKING([for libjpeg via pkg-config])
+		if $PKGCONFIG --exists libjpeg; then
+			AC_MSG_RESULT([yes]);
+			AC_DEFINE([HAVE_LIBJPEG], 1, [libjpeg])
+			CFLAGS="$CFLAGS `$PKGCONFIG --cflags libjpeg`"
+			LIBS="$LIBS `$PKGCONFIG --libs libjpeg`"
+			PKGCONFIG_LIBJPEG="libjpeg,"
+			have_jpeg=yes
+		else
+			AC_MSG_RESULT([no]);
 		fi
 	fi
-elif test x$enable_libjpeg = xyes; then
-	AC_MSG_ERROR([libjpeg-dev 8 or later required for --enable-libjpeg.])
+
+	if test $have_jpeg = no; then
+		AC_SEARCH_LIBS(jpeg_start_decompress, turbojpeg jpeg,[
+			AC_DEFINE([HAVE_LIBJPEG], 1, [libjpeg])
+			have_jpeg=yes])
+	fi
+
+	if test x$enable_libjpeg = xyes -a $have_jpeg = no; then
+		AC_MSG_ERROR([libjpeg-dev 8 or later required for --enable-libjpeg.])
+	fi
 fi
 
 
 dnl libpng...
-AC_ARG_ENABLE(libpng, [  --enable-libpng         use libpng for PNG printing])
+AC_ARG_ENABLE(libpng, [  --enable-libpng         use libpng for PNG printing, default=auto])
+
+PKGCONFIG_LIBPNG=""
+AC_SUBST(PKGCONFIG_LIBPNG)
 
 if test "x$PKGCONFIG" != x -a x$enable_libpng != xno; then
 	AC_MSG_CHECKING([for libpng-1.6.x])
@@ -233,6 +257,7 @@ if test "x$PKGCONFIG" != x -a x$enable_libpng != xno; then
 		AC_DEFINE([HAVE_LIBPNG], 1, [libpng])
 		CFLAGS="$CFLAGS `$PKGCONFIG --cflags libpng16`"
 		LIBS="$LIBS `$PKGCONFIG --libs libpng16` -lz"
+		PKGCONFIG_LIBPNG="libpng >= 1.6,"
 	else
 		AC_MSG_RESULT([no]);
 		if test x$enable_libpng = xyes; then
@@ -245,7 +270,10 @@ fi
 
 
 dnl libusb...
-AC_ARG_ENABLE(libusb, [  --enable-libusb         use libusb for USB printing])
+AC_ARG_ENABLE(libusb, [  --enable-libusb         use libusb for USB printing, default=auto])
+
+PKGCONFIG_LIBUSB=""
+AC_SUBST(PKGCONFIG_LIBUSB)
 
 if test "x$PKGCONFIG" != x -a x$enable_libusb != xno; then
 	AC_MSG_CHECKING([for libusb-1.0])
@@ -257,6 +285,7 @@ if test "x$PKGCONFIG" != x -a x$enable_libusb != xno; then
 		if test "x$host_os_name" = xdarwin; then
 			LIBS="$LIBS -framework IOKit"
 		fi
+		PKGCONFIG_LIBUSB="libusb-1.0 >= 1.0,"
 	else
 		AC_MSG_RESULT([no])
 		if test x$enable_libusb = xyes; then
@@ -269,9 +298,9 @@ fi
 
 
 dnl PAM support...
-AC_ARG_ENABLE(pam, [  --disable-pam           disable PAM support])
+AC_ARG_ENABLE(pam, [  --enable-libpam         use libpam for authentication, default=auto])
 
-if test x$enable_pam != xno; then
+if test x$enable_libpam != xno; then
 	dnl PAM needs dlopen...
 	AC_CHECK_LIB([dl], [dlopen])
 	AC_CHECK_LIB([pam], [pam_start], [
@@ -282,8 +311,8 @@ if test x$enable_pam != xno; then
 	AC_CHECK_HEADER(security/pam_appl.h, AC_DEFINE([HAVE_SECURITY_PAM_APPL_H], 1, [Have <security/pam_appl.h> header?]))
 	AC_CHECK_HEADER(pam/pam_appl.h, AC_DEFINE([HAVE_PAM_PAM_APPL_H], 1, [Have <pam/pam_appl.h> header?]))
 
-	if test x$ac_pam_start = xno -a x$enable_pam = xyes; then
-		AC_MSG_ERROR([libpam-dev required for --enable-pam.])
+	if test x$ac_pam_start = xno -a x$enable_libpam = xyes; then
+		AC_MSG_ERROR([libpam-dev required for --enable-libpam.])
 	fi
 fi
 
@@ -299,14 +328,20 @@ AC_SUBST(LIBPAPPL)
 
 dnl Extra compiler options...
 AC_ARG_ENABLE(debug, [  --enable-debug          turn on debugging, default=no])
+AC_ARG_ENABLE(maintainer, [  --enable-maintainer     turn on maintainer mode, default=no])
 AC_ARG_ENABLE(sanitizer, [  --enable-sanitizer      build with AddressSanitizer, default=no])
 
 if test x$enable_debug = xyes; then
 	OPTIM="-g"
+	CSFLAGS=""
 else
 	OPTIM="-g -Os"
+	CSFLAGS="-o runtime"
 fi
+WARNINGS=""
+AC_SUBST(CSFLAGS)
 AC_SUBST(OPTIM)
+AC_SUBST(WARNINGS)
 
 if test -n "$GCC"; then
 	if test x$enable_sanitizer = xyes; then
@@ -320,7 +355,18 @@ if test -n "$GCC"; then
 	fi
 
 	dnl Show all standard warnings + unused variables when compiling...
-	CFLAGS="-Wall -Wunused -Wno-unknown-warning-option -Wno-unused-result -Wno-char-subscripts -Wno-format-y2k -Wno-maybe-uninitialized -Wno-switch $CFLAGS"
+	if test "$host_os_name" = darwin; then
+		# macOS Clang is conservative about "-Wall" warnings
+		WARNINGS="-Wall -Wunused"
+	else
+		# Newer GCCs generate a lot of not-useful/reliable warnings with "-Wall"
+		WARNINGS="-Wall -Wunused -Wno-unused-result -Wno-char-subscripts -Wno-format-y2k -Wno-maybe-uninitialized -Wno-switch -Wno-format-truncation"
+	fi
+
+	dnl Maintainer mode enables -Werror...
+	if test x$enable_maintainer = xyes; then
+		WARNINGS="$WARNINGS -Werror"
+	fi
 
 	dnl See if PIE options are supported...
 	AC_MSG_CHECKING(whether compiler supports -fPIE)

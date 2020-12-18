@@ -31,26 +31,35 @@ extern "C" {
 // Types...
 //
 
+typedef struct pappl_pr_driver_s	// Printer driver information
+{
+  const char	*name;				// Driver name
+  const char	*description;			// Driver description (usually the make and model)
+  const char	*device_id;			// IEEE-1284 device ID
+  void		*extension;			// Extension data pointer
+} pappl_pr_driver_t;
+
 enum pappl_soptions_e			// System option bits
 {
   PAPPL_SOPTIONS_NONE = 0x0000,			// No options
-  PAPPL_SOPTIONS_MULTI_QUEUE = 0x0001,		// Support multiple printers
-  PAPPL_SOPTIONS_STANDARD = 0x0002,		// Include the standard web pages
-  PAPPL_SOPTIONS_REMOTE_ADMIN = 0x0004,		// Allow remote queue management (vs. localhost only)
-  PAPPL_SOPTIONS_NETWORK = 0x0008,		// Include network settings page
-  PAPPL_SOPTIONS_SECURITY = 0x0010,		// Include user/password settings page
-  PAPPL_SOPTIONS_TLS = 0x0020,			// Include TLS settings page
-  PAPPL_SOPTIONS_LOG = 0x0040,			// Include link to log file
-  PAPPL_SOPTIONS_DNSSD_HOST = 0x0080,		// Use hostname in DNS-SD service names instead of serial number/UUID
-  PAPPL_SOPTIONS_RAW_SOCKET = 0x0100		// Accept jobs via raw sockets
+  PAPPL_SOPTIONS_DNSSD_HOST = 0x0001,		// Use hostname in DNS-SD service names instead of serial number/UUID
+  PAPPL_SOPTIONS_MULTI_QUEUE = 0x0002,		// Support multiple printers
+  PAPPL_SOPTIONS_RAW_SOCKET = 0x0004,		// Accept jobs via raw sockets
+  PAPPL_SOPTIONS_USB_PRINTER = 0x0008,		// Accept jobs via USB for default printer (embedded Linux only)
+  PAPPL_SOPTIONS_WEB_INTERFACE = 0x0010,	// Enable the standard web pages
+  PAPPL_SOPTIONS_WEB_LOG = 0x0020,		// Enable the log file page
+  PAPPL_SOPTIONS_WEB_NETWORK = 0x0040,		// Enable the network settings page
+  PAPPL_SOPTIONS_WEB_REMOTE = 0x0080,		// Allow remote queue management (vs. localhost only)
+  PAPPL_SOPTIONS_WEB_SECURITY = 0x0100,		// Enable the user/password settings page
+  PAPPL_SOPTIONS_WEB_TLS = 0x0200		// Enable the TLS settings page
 };
 typedef unsigned pappl_soptions_t;	// Bitfield for system options
 
 typedef struct pappl_version_s		// Firmware version information
 {
-  char			name[64],		// "xxx-firmware-name" value
-			patches[64],		// "xxx-firmware-patches" value
-			sversion[64];		// "xxx-firmware-string-version" value
+  char			name[64];		// "xxx-firmware-name" value
+  char			patches[64];		// "xxx-firmware-patches" value
+  char			sversion[64];		// "xxx-firmware-string-version" value
   unsigned short	version[4];		// "xxx-firmware-version" value
 } pappl_version_t;
 
@@ -59,7 +68,11 @@ typedef struct pappl_version_s		// Firmware version information
 // Callback function types...
 //
 
-typedef bool (*pappl_pdriver_cb_t)(pappl_system_t *system, const char *driver_name, const char *device_uri, pappl_pdriver_data_t *driver_data, ipp_t **driver_attrs, void *data);
+typedef const char *(*pappl_pr_autoadd_cb_t)(const char *device_info, const char *device_uri, const char *device_id, void *data);
+					// Auto-add callback
+typedef void (*pappl_pr_create_cb_t)(pappl_printer_t *printer, void *data);
+					// Printer creation callback
+typedef bool (*pappl_pr_driver_cb_t)(pappl_system_t *system, const char *driver_name, const char *device_uri, const char *device_id, pappl_pr_driver_data_t *driver_data, ipp_t **driver_attrs, void *data);
 					// Driver callback function
 typedef bool (*pappl_mime_filter_cb_t)(pappl_job_t *job, pappl_device_t *device, void *data);
 					// Filter callback function
@@ -79,7 +92,7 @@ typedef bool (*pappl_save_cb_t)(pappl_system_t *system, void *data);
 // Functions...
 //
 
-extern void		papplSystemAddLink(pappl_system_t *system, const char *label, const char *path_or_url, bool secure);
+extern void		papplSystemAddLink(pappl_system_t *system, const char *label, const char *path_or_url, pappl_loptions_t options) _PAPPL_PUBLIC;
 extern bool		papplSystemAddListeners(pappl_system_t *system, const char *name) _PAPPL_PUBLIC;
 extern void		papplSystemAddMIMEFilter(pappl_system_t *system, const char *srctype, const char *dsttype, pappl_mime_filter_cb_t cb, void *data) _PAPPL_PUBLIC;
 extern void		papplSystemAddResourceCallback(pappl_system_t *system, const char *path, const char *format, pappl_resource_cb_t cb, void *data) _PAPPL_PUBLIC;
@@ -104,7 +117,7 @@ extern char		*papplSystemGetGeoLocation(pappl_system_t *system, char *buffer, si
 extern char		*papplSystemGetHostname(pappl_system_t *system, char *buffer, size_t bufsize) _PAPPL_PUBLIC;
 extern char		*papplSystemGetLocation(pappl_system_t *system, char *buffer, size_t bufsize) _PAPPL_PUBLIC;
 extern pappl_loglevel_t  papplSystemGetLogLevel(pappl_system_t *system) _PAPPL_PUBLIC;
-extern size_t  papplSystemGetMaxLogSize(pappl_system_t *system) _PAPPL_PUBLIC;
+extern size_t		papplSystemGetMaxLogSize(pappl_system_t *system) _PAPPL_PUBLIC;
 extern char		*papplSystemGetName(pappl_system_t *system, char *buffer, size_t bufsize) _PAPPL_PUBLIC;
 extern int		papplSystemGetNextPrinterID(pappl_system_t *system) _PAPPL_PUBLIC;
 extern pappl_soptions_t	papplSystemGetOptions(pappl_system_t *system) _PAPPL_PUBLIC;
@@ -119,8 +132,11 @@ extern const char	*papplSystemGetUUID(pappl_system_t *system) _PAPPL_PUBLIC;
 extern int		papplSystemGetVersions(pappl_system_t *system, int max_versions, pappl_version_t *versions) _PAPPL_PUBLIC;
 extern char		*papplSystemHashPassword(pappl_system_t *system, const char *salt, const char *password, char *buffer, size_t bufsize) _PAPPL_PUBLIC;
 extern bool		papplSystemIsRunning(pappl_system_t *system) _PAPPL_PUBLIC;
+extern bool		papplSystemIsShutdown(pappl_system_t *system) _PAPPL_PUBLIC;
 extern void		papplSystemIteratePrinters(pappl_system_t *system, pappl_printer_cb_t cb, void *data) _PAPPL_PUBLIC;
 extern bool		papplSystemLoadState(pappl_system_t *system, const char *filename) _PAPPL_PUBLIC;
+extern const char	*papplSystemMatchDriver(pappl_system_t *system, const char *device_id) _PAPPL_PUBLIC;
+extern void		papplSystemRemoveLink(pappl_system_t *system, const char *label) _PAPPL_PUBLIC;
 extern void		papplSystemRemoveResource(pappl_system_t *system, const char *path) _PAPPL_PUBLIC;
 extern void		papplSystemRun(pappl_system_t *system) _PAPPL_PUBLIC;
 extern bool		papplSystemSaveState(pappl_system_t *system, const char *filename) _PAPPL_PUBLIC;
@@ -129,6 +145,7 @@ extern void		papplSystemSetAdminGroup(pappl_system_t *system, const char *value)
 extern void		papplSystemSetContact(pappl_system_t *system, pappl_contact_t *contact) _PAPPL_PUBLIC;
 extern void		papplSystemSetDefaultPrinterID(pappl_system_t *system, int default_printer_id) _PAPPL_PUBLIC;
 extern void		papplSystemSetDefaultPrintGroup(pappl_system_t *system, const char *value) _PAPPL_PUBLIC;
+extern void		papplSystemSetPrinterDrivers(pappl_system_t *system, int num_drivers, pappl_pr_driver_t *drivers, pappl_pr_autoadd_cb_t autoadd_cb, pappl_pr_create_cb_t create_cb, pappl_pr_driver_cb_t driver_cb, void *data) _PAPPL_PUBLIC;
 extern void		papplSystemSetDNSSDName(pappl_system_t *system, const char *value) _PAPPL_PUBLIC;
 extern void		papplSystemSetFooterHTML(pappl_system_t *system, const char *html) _PAPPL_PUBLIC;
 extern void		papplSystemSetGeoLocation(pappl_system_t *system, const char *value) _PAPPL_PUBLIC;
@@ -142,7 +159,6 @@ extern void		papplSystemSetOperationCallback(pappl_system_t *system, pappl_ipp_o
 extern void		papplSystemSetOrganization(pappl_system_t *system, const char *value) _PAPPL_PUBLIC;
 extern void		papplSystemSetOrganizationalUnit(pappl_system_t *system, const char *value) _PAPPL_PUBLIC;
 extern void		papplSystemSetPassword(pappl_system_t *system, const char *hash) _PAPPL_PUBLIC;
-extern void		papplSystemSetPrintDrivers(pappl_system_t *system, int num_names, const char * const *names, const char * const *desc, pappl_pdriver_cb_t cb, void *data) _PAPPL_PUBLIC;
 extern void		papplSystemSetSaveCallback(pappl_system_t *system, pappl_save_cb_t cb, void *data) _PAPPL_PUBLIC;
 extern void		papplSystemSetUUID(pappl_system_t *system, const char *value) _PAPPL_PUBLIC;
 extern void		papplSystemSetVersions(pappl_system_t *system, int num_versions, pappl_version_t *versions) _PAPPL_PUBLIC;
