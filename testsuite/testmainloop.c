@@ -25,7 +25,7 @@ int					// O - Exit status
 main(int  argc,				// I - Number of command line arguments
      char *argv[])			// I - Command line arguments
 {
-  return (papplMainloop(argc, argv, "1.0 build 42", /*usage_cb*/NULL, /*subcmd_name*/NULL, /*subcmd_cb*/NULL, system_cb, "testmainloop"));
+  return (papplMainloop(argc, argv, "1.0 build 42", /* footer_html */NULL, (int)(sizeof(pwg_drivers) / sizeof(pwg_drivers[0])), pwg_drivers, /*autoadd_cb*/NULL, pwg_callback, /*subcmd_name*/NULL, /*subcmd_cb*/NULL, system_cb, /*usage_cb*/NULL, "testmainloop"));
 }
 
 
@@ -45,7 +45,7 @@ system_cb(int           num_options,	// I - Number of options
 			*system_name;	// System name, if any
   pappl_loglevel_t	loglevel;	// Log level
   int			port = 0;	// Port number, if any
-  pappl_soptions_t	soptions = PAPPL_SOPTIONS_MULTI_QUEUE | PAPPL_SOPTIONS_STANDARD | PAPPL_SOPTIONS_LOG | PAPPL_SOPTIONS_NETWORK | PAPPL_SOPTIONS_SECURITY | PAPPL_SOPTIONS_TLS;
+  pappl_soptions_t	soptions = PAPPL_SOPTIONS_MULTI_QUEUE | PAPPL_SOPTIONS_WEB_INTERFACE | PAPPL_SOPTIONS_WEB_LOG | PAPPL_SOPTIONS_WEB_NETWORK | PAPPL_SOPTIONS_WEB_SECURITY | PAPPL_SOPTIONS_WEB_TLS;
 					// System options
   static pappl_contact_t contact =	// Contact information
   {
@@ -109,7 +109,8 @@ system_cb(int           num_options,	// I - Number of options
 
   papplSystemAddListeners(system, NULL);
   papplSystemSetHostname(system, hostname);
-  test_setup_drivers(system);
+
+  papplSystemSetPrinterDrivers(system, (int)(sizeof(pwg_drivers) / sizeof(pwg_drivers[0])), pwg_drivers, pwg_autoadd, /*create_cb*/NULL, pwg_callback, "testmainloop");
 
   papplSystemSetFooterHTML(system,
                            "Copyright &copy; 2020 by Michael R Sweet. "

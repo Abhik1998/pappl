@@ -47,9 +47,10 @@ typedef struct _pappl_usb_dev_s		// USB device data
 #ifdef HAVE_LIBUSB
 static void		pappl_usb_close(pappl_device_t *device);
 static bool		pappl_usb_find(pappl_device_cb_t cb, void *data, _pappl_usb_dev_t *device, pappl_deverror_cb_t err_cb, void *err_data);
+static char		*pappl_usb_getid(pappl_device_t *device, char *buffer, size_t bufsize);
 static bool		pappl_usb_list(pappl_device_cb_t cb, void *data, pappl_deverror_cb_t err_cb, void *err_data);
 static bool		pappl_usb_open(pappl_device_t *device, const char *device_uri, const char *name);
-static bool		pappl_usb_open_cb(const char *device_uri, const char *device_id, void *data);
+static bool		pappl_usb_open_cb(const char *device_info, const char *device_uri, const char *device_id, void *data);
 static ssize_t		pappl_usb_read(pappl_device_t *device, void *buffer, size_t bytes);
 static pappl_preason_t	pappl_usb_status(pappl_device_t *device);
 static ssize_t		pappl_usb_write(pappl_device_t *device, const void *buffer, size_t bytes);
@@ -64,7 +65,7 @@ void
 _papplDeviceAddUSBScheme(void)
 {
 #ifdef HAVE_LIBUSB
-  papplDeviceAddScheme("usb", PAPPL_DTYPE_USB, pappl_usb_list, pappl_usb_open, pappl_usb_close, pappl_usb_read, pappl_usb_write, pappl_usb_status);
+  papplDeviceAddScheme("usb", PAPPL_DEVTYPE_USB, pappl_usb_list, pappl_usb_open, pappl_usb_close, pappl_usb_read, pappl_usb_write, pappl_usb_status, pappl_usb_getid);
 #endif // HAVE_LIBUSB
 }
 
@@ -130,6 +131,7 @@ pappl_usb_find(
   {
     libusb_device *udevice = udevs[i];	// Current device
     char	device_id[1024],	// Current device ID
+		device_info[256],	// Current device description
 		device_uri[1024];	// Current device URI
     struct libusb_device_descriptor devdesc;
 					// Current device descriptor
@@ -326,7 +328,7 @@ pappl_usb_find(
             if (device->handle)
             {
               // Get the 1284 Device ID...
-              if ((err = libusb_control_transfer(device->handle, LIBUSB_REQUEST_TYPE_CLASS | LIBUSB_ENDPOINT_IN | LIBUSB_RECIPIENT_INTERFACE, 0, device->conf, (device->iface << 8) | device->altset, (unsigned char *)device_id, sizeof(device_id), 5000)) < 0)
+              if ((err = libusb_control_transfer(device->handle, LIBUSB_REQUEST_TYPE_CLASS | LIBUSB_ENDPOINT_IN | LIBUSB_RECIPIENT_INTERFACE, 0, (uint16_t)device->conf, (uint16_t)((device->iface << 8) | device->altset), (unsigned char *)device_id, sizeof(device_id), 5000)) < 0)
               {
 		_papplDeviceError(err_cb, err_data, "Unable to get IEEE-1284 device ID: %s", libusb_strerror((enum libusb_error)err));
                 device_id[0] = '\0';
@@ -336,11 +338,11 @@ pappl_usb_find(
               else
               {
                 int length = ((device_id[0] & 255) << 8) | (device_id[1] & 255);
-                if (length < 14 || length > sizeof(device_id))
+                if (length < 14 || length > (int)sizeof(device_id))
                   length = ((device_id[1] & 255) << 8) | (device_id[0] & 255);
 
-                if (length > sizeof(device_id))
-                  length = sizeof(device_id);
+                if (length > (int)sizeof(device_id))
+                  length = (int)sizeof(device_id);
 
                 length -= 2;
                 memmove(device_id, device_id + 2, (size_t)length);
@@ -415,7 +417,12 @@ pappl_usb_find(
               else
                 httpAssembleURIf(HTTP_URI_CODING_ALL, device_uri, sizeof(device_uri), "usb", NULL, make, 0, "/%s", model);
 
-              if ((*cb)(device_uri, device_id, data))
+	      if (!strcmp(make, "HP") && !strncmp(model, "HP ", 3))
+	        snprintf(device_info, sizeof(device_info), "%s (USB)", model);
+	      else
+	        snprintf(device_info, sizeof(device_info), "%s %s (USB)", make, model);
+
+              if ((*cb)(device_info, device_uri, device_id, data))
               {
                 _PAPPL_DEBUG("pappl_usb_find:     Found a match.\n");
 
@@ -453,6 +460,50 @@ pappl_usb_find(
 }
 
 
+//
+// 'pappl_usb_getid()' - Get the current IEEE-1284 device ID.
+//
+
+static char *				// O - Device ID or `NULL` on error
+pappl_usb_getid(
+    pappl_device_t *device,		// I - Device
+    char           *buffer,		// I - Buffer
+    size_t         bufsize)		// I - Size of buffer
+{
+  _pappl_usb_dev_t	*usb = (_pappl_usb_dev_t *)papplDeviceGetData(device);
+					// USB device data
+  size_t		length;		// Length of device ID
+  ssize_t		err;		// Current error
+
+
+  // Get the 1284 Device ID...
+  if ((err = libusb_control_transfer(usb->handle, LIBUSB_REQUEST_TYPE_CLASS | LIBUSB_ENDPOINT_IN | LIBUSB_RECIPIENT_INTERFACE, 0, (uint16_t)usb->conf, (uint16_t)((usb->iface << 8) | usb->altset), (unsigned char *)buffer, (uint16_t)bufsize, 5000)) < 0)
+  {
+    papplDeviceError(device, "Unable to get IEEE-1284 device ID: %s", libusb_strerror((enum libusb_error)err));
+    buffer[0] = '\0';
+    return (NULL);
+  }
+
+  // Nul-terminate
+  length = (size_t)(((buffer[0] & 255) << 8) | (buffer[1] & 255));
+  if (length < 14 || length > bufsize)	// Some printers do it wrong (LSB)...
+    length = (size_t)(((buffer[1] & 255) << 8) | (buffer[0] & 255));
+
+  if (length > bufsize)
+    length = bufsize;
+
+  length -= 2;
+  memmove(buffer, buffer + 2, length);
+  buffer[length] = '\0';
+
+  return (buffer);
+}
+
+
+//
+// 'pappl_usb_list()' - List USB devices.
+//
+
 static bool				// O - `true` if found, `false` if not
 pappl_usb_list(
     pappl_device_cb_t   cb,		// I - Callback function
@@ -484,10 +535,12 @@ static bool				// `true` on success, `false` on error
 pappl_usb_open(
     pappl_device_t *device,		// I - Device
     const char     *device_uri,		// I - Device URI
-    const char     *name)		// I - Job name (unused)
+    const char     *job_name)		// I - Job name (unused)
 {
   _pappl_usb_dev_t	*usb;		// USB device
 
+
+  (void)job_name;
 
   if ((usb = (_pappl_usb_dev_t *)calloc(1, sizeof(_pappl_usb_dev_t))) == NULL)
   {
@@ -513,6 +566,7 @@ pappl_usb_open(
 
 static bool				// O - `true` on match, `false` otherwise
 pappl_usb_open_cb(
+    const char *device_info,		// I - Description of device
     const char *device_uri,		// I - This device's URI
     const char *device_id,		// I - IEEE-1284 Device ID
     void       *data)			// I - URI we are looking for
@@ -521,7 +575,7 @@ pappl_usb_open_cb(
 					// Does this match?
 
 
-  _PAPPL_DEBUG("pappl_usb_open_cb(device_uri=\"%s\", device_id=\"%s\", user_data=\"%s\") returning %s.\n", device_uri, device_id, (char *)data, match ? "true" : "false");
+  _PAPPL_DEBUG("pappl_usb_open_cb(device_info=\"%s\", device_uri=\"%s\", device_id=\"%s\", user_data=\"%s\") returning %s.\n", device_info, device_uri, device_id, (char *)data, match ? "true" : "false");
 
   return (match);
 }
@@ -542,7 +596,7 @@ pappl_usb_read(pappl_device_t *device,	// I - Device
   int			icount;		// Bytes that were read
 
 
-  if (libusb_bulk_transfer(usb->handle, usb->read_endp, buffer, (int)bytes, &icount, 0) < 0)
+  if (libusb_bulk_transfer(usb->handle, (unsigned char)usb->read_endp, buffer, (int)bytes, &icount, 100) < 0)
     return (-1);
   else
     return ((ssize_t)icount);
@@ -564,7 +618,7 @@ pappl_usb_status(pappl_device_t *device)// I - Device
 					// Centronics port status byte
 
 
-  if (libusb_control_transfer(usb->handle, LIBUSB_REQUEST_TYPE_CLASS | LIBUSB_ENDPOINT_IN | LIBUSB_RECIPIENT_INTERFACE, 1, usb->conf, (usb->iface << 8) | usb->altset, &port_status, 1, 5000) >= 0)
+  if (libusb_control_transfer(usb->handle, LIBUSB_REQUEST_TYPE_CLASS | LIBUSB_ENDPOINT_IN | LIBUSB_RECIPIENT_INTERFACE, 1, (uint16_t)usb->conf, (uint16_t)((usb->iface << 8) | usb->altset), &port_status, 1, 5000) >= 0)
   {
     if (!(port_status & 0x08))
       status |= PAPPL_PREASON_OTHER;
@@ -594,7 +648,7 @@ pappl_usb_write(pappl_device_t *device,	// I - Device
   int	icount;				// Bytes that were written
 
 
-  if (libusb_bulk_transfer(usb->handle, usb->write_endp, (unsigned char *)buffer, (int)bytes, &icount, 0) < 0)
+  if (libusb_bulk_transfer(usb->handle, (unsigned char)usb->write_endp, (unsigned char *)buffer, (int)bytes, &icount, 0) < 0)
     return (-1);
   else
     return ((ssize_t)icount);

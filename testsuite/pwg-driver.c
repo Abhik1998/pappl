@@ -11,6 +11,7 @@
 // Include necessary headers...
 //
 
+#define PWG_DRIVER 1
 #include "testpappl.h"
 #include </home/abhik/pappl/pappl/base-private.h>		// For strlcpy
 #include <cups/dir.h>
@@ -23,7 +24,6 @@
 
 typedef struct pwg_s
 {
-  int		fd;			// Output file descriptor
   cups_raster_t	*ras;			// PWG raster file
   size_t	colorants[4];		// Color usage
 } pwg_job_data_t;
@@ -82,55 +82,48 @@ static const char * const pwg_common_media[] =
 // Local functions...
 //
 
-static bool	pwg_callback(pappl_system_t *system, const char *driver_name, const char *device_uri, pappl_pdriver_data_t *driver_data, ipp_t **driver_attrs, void *data);
 static void	pwg_identify(pappl_printer_t *printer, pappl_identify_actions_t actions, const char *message);
-static bool	pwg_print(pappl_job_t *job, pappl_poptions_t *options, pappl_device_t *device);
-static bool	pwg_rendjob(pappl_job_t *job, pappl_poptions_t *options, pappl_device_t *device);
-static bool	pwg_rendpage(pappl_job_t *job, pappl_poptions_t *options, pappl_device_t *device, unsigned page);
-static bool	pwg_rstartjob(pappl_job_t *job, pappl_poptions_t *options, pappl_device_t *device);
-static bool	pwg_rstartpage(pappl_job_t *job, pappl_poptions_t *options, pappl_device_t *device, unsigned page);
-static bool	pwg_rwrite(pappl_job_t *job, pappl_poptions_t *options, pappl_device_t *device, unsigned y, const unsigned char *line);
+static bool	pwg_print(pappl_job_t *job, pappl_pr_options_t *options, pappl_device_t *device);
+static bool	pwg_rendjob(pappl_job_t *job, pappl_pr_options_t *options, pappl_device_t *device);
+static bool	pwg_rendpage(pappl_job_t *job, pappl_pr_options_t *options, pappl_device_t *device, unsigned page);
+static bool	pwg_rstartjob(pappl_job_t *job, pappl_pr_options_t *options, pappl_device_t *device);
+static bool	pwg_rstartpage(pappl_job_t *job, pappl_pr_options_t *options, pappl_device_t *device, unsigned page);
+static bool	pwg_rwriteline(pappl_job_t *job, pappl_pr_options_t *options, pappl_device_t *device, unsigned y, const unsigned char *line);
 static bool	pwg_status(pappl_printer_t *printer);
 static const char *pwg_testpage(pappl_printer_t *printer, char *buffer, size_t bufsize);
 
 
 //
-// 'test_setup_drivers()' - Set the drivers list and callback.
+// 'pwg_autoadd()' - Auto-add callback.
 //
 
-void
-test_setup_drivers(
-    pappl_system_t *system)		// I - System
+const char *				// O - Driver name or `NULL` for none
+pwg_autoadd(const char *device_info,	// I - Device information string (not used)
+            const char *device_uri,	// I - Device URI (not used)
+            const char *device_id,	// I - IEEE-1284 device ID
+            void       *data)		// I - Callback data (not used)
 {
-  static const char * const names[] =	// Driver names
-  {
-    "pwg_2inch-203dpi-black_1",
-    "pwg_2inch-300dpi-black_1",
-    "pwg_4inch-203dpi-black_1",
-    "pwg_4inch-300dpi-black_1",
-    "pwg_common-300dpi-black_1",
-    "pwg_common-300dpi-sgray_8",
-    "pwg_common-300dpi-srgb_8",
-    "pwg_common-300dpi-600dpi-black_1",
-    "pwg_common-300dpi-600dpi-sgray_8",
-    "pwg_common-300dpi-600dpi-srgb_8"
-  };
+  int		num_did;		// Number of device ID pairs
+  cups_option_t	*did;			// Device ID pairs
+  const char	*cmd,			// Command set value
+		*ret = NULL;		// Return value
 
-  static const char * const desc[] =
-  {
-    "PWG 2inch Label 203DPI Black",
-    "PWG 2inch Label 300DPI Black",
-    "PWG 4inch Label 203DPI Black",
-    "PWG 4inch Label 300DPI Black",
-    "PWG Office 300DPI Black",
-    "PWG Office 300DPI SGray 8-bit",
-    "PWG Office 300DPI SRGB 8-bit",
-    "PWG Office 300DPI 600DPI Black",
-    "PWG Office 300DPI 600DPI SGray 8-bit",
-    "PWG Office 300DPI 600DPI SRGB 8-bit"
-  };
 
-  papplSystemSetPrintDrivers(system, (int)(sizeof(names) / sizeof(names[0])), names, desc, pwg_callback, "testpappl");
+  (void)device_info;
+  (void)device_uri;
+  (void)data;
+
+  num_did = papplDeviceParseID(device_id, &did);
+
+  if ((cmd = cupsGetOption("COMMAND SET", num_did, did)) == NULL)
+    cmd = cupsGetOption("CMD", num_did, did);
+
+  if (cmd && strstr(cmd, "PWGRaster") != NULL)
+    ret = "pwg_common-300dpi-srgb_8";
+
+  cupsFreeOptions(num_did, did);
+
+  return (ret);
 }
 
 
@@ -138,17 +131,21 @@ test_setup_drivers(
 // 'pwg_callback()' - Driver callback.
 //
 
-static bool				// O - `true` on success, `false` on failure
+bool					// O - `true` on success, `false` on failure
 pwg_callback(
-    pappl_system_t       *system,	// I - System
-    const char           *driver_name,	// I - Driver name
-    const char           *device_uri,	// I - Device URI
-    pappl_pdriver_data_t *driver_data,	// O - Driver data
-    ipp_t                **driver_attrs,// O - Driver attributes
-    void                 *data)		// I - Callback data
+    pappl_system_t         *system,	// I - System
+    const char             *driver_name,// I - Driver name
+    const char             *device_uri,	// I - Device URI
+    const char             *device_id,	// I - IEEE-1284 device ID string (not used)
+    pappl_pr_driver_data_t *driver_data,// O - Driver data
+    ipp_t                  **driver_attrs,
+					// O - Driver attributes
+    void                   *data)	// I - Callback data
 {
   int	i;				// Looping var
 
+
+  (void)device_id;
 
   if (!driver_name || !device_uri || !driver_data || !driver_attrs)
   {
@@ -156,15 +153,15 @@ pwg_callback(
     return (false);
   }
 
-  if (strcmp(device_uri, "file:///dev/null"))
+  if (!data || (strcmp((const char *)data, "testpappl") && strcmp((const char *)data, "testmainloop")))
   {
-    papplLog(system, PAPPL_LOGLEVEL_ERROR, "Unsupported device URI '%s'.", device_uri);
+    papplLog(system, PAPPL_LOGLEVEL_ERROR, "Driver callback called with bad data pointer.");
     return (false);
   }
 
-  if (!data || strcmp((const char *)data, "testpappl"))
+  if (!strncmp(driver_name, "pwg_fail", 8))
   {
-    papplLog(system, PAPPL_LOGLEVEL_ERROR, "Driver callback called with bad data pointer.");
+    papplLog(system, PAPPL_LOGLEVEL_ERROR, "Always-fails driver specified.");
     return (false);
   }
 
@@ -187,17 +184,17 @@ pwg_callback(
     return (false);
   }
 
-  driver_data->identify           = pwg_identify;
+  driver_data->identify_cb        = pwg_identify;
   driver_data->identify_default   = PAPPL_IDENTIFY_ACTIONS_SOUND;
   driver_data->identify_supported = PAPPL_IDENTIFY_ACTIONS_DISPLAY | PAPPL_IDENTIFY_ACTIONS_SOUND;
-  driver_data->print              = pwg_print;
-  driver_data->rendjob            = pwg_rendjob;
-  driver_data->rendpage           = pwg_rendpage;
-  driver_data->rstartjob          = pwg_rstartjob;
-  driver_data->rstartpage         = pwg_rstartpage;
-  driver_data->rwrite             = pwg_rwrite;
-  driver_data->status             = pwg_status;
-  driver_data->testpage           = pwg_testpage;
+  driver_data->printfile_cb       = pwg_print;
+  driver_data->rendjob_cb         = pwg_rendjob;
+  driver_data->rendpage_cb        = pwg_rendpage;
+  driver_data->rstartjob_cb       = pwg_rstartjob;
+  driver_data->rstartpage_cb      = pwg_rstartpage;
+  driver_data->rwriteline_cb      = pwg_rwriteline;
+  driver_data->status_cb          = pwg_status;
+  driver_data->testpage_cb        = pwg_testpage;
   driver_data->format             = "image/pwg-raster";
   driver_data->orient_default     = IPP_ORIENT_NONE;
   driver_data->quality_default    = IPP_QUALITY_NORMAL;
@@ -294,6 +291,20 @@ pwg_callback(
     driver_data->source[2]  = "manual";
     driver_data->source[3]  = "by-pass-tray";
 
+    if (driver_data->raster_types & PAPPL_PWG_RASTER_TYPE_SRGB_8)
+    {
+      // Color office printer gets two output bins...
+      driver_data->num_bin = 2;
+      driver_data->bin[0]  = "center";
+      driver_data->bin[1]  = "rear";
+    }
+    else
+    {
+      // B&W office printer gets one output bin...
+      driver_data->num_bin = 1;
+      driver_data->bin[0]  = "center";
+    }
+
     strlcpy(driver_data->media_ready[0].size_name, "na_letter_8.5x11in", sizeof(driver_data->media_ready[0].size_name));
     strlcpy(driver_data->media_ready[1].size_name, "iso_a4_210x297mm", sizeof(driver_data->media_ready[1].size_name));
 
@@ -333,6 +344,33 @@ pwg_callback(
   }
   else
   {
+    static const int integers[] =	// List of integers
+    {
+      1,
+      2,
+      3,
+      5,
+      7,
+      11,
+      13,
+      17,
+      19,
+      23,
+      29,
+      31,
+      37,
+      41,
+      43,
+      47
+    };
+    static const char * const keywords[] =
+    {					// List of keywords
+      "one-fish",
+      "two-fish",
+      "red-fish",
+      "blue-fish"
+    };
+
     driver_data->color_supported = PAPPL_COLOR_MODE_AUTO | PAPPL_COLOR_MODE_MONOCHROME;
     driver_data->color_default   = PAPPL_COLOR_MODE_MONOCHROME;
 
@@ -357,6 +395,29 @@ pwg_callback(
 
     driver_data->sides_supported = PAPPL_SIDES_ONE_SIDED;
     driver_data->sides_default   = PAPPL_SIDES_ONE_SIDED;
+
+    driver_data->num_vendor = 5;
+    driver_data->vendor[0]  = "vendor-boolean";
+    driver_data->vendor[1]  = "vendor-integer";
+    driver_data->vendor[2]  = "vendor-keyword";
+    driver_data->vendor[3]  = "vendor-range";
+    driver_data->vendor[4]  = "vendor-text";
+
+    *driver_attrs = ippNew();
+
+    ippAddBoolean(*driver_attrs, IPP_TAG_PRINTER, "vendor-boolean-default", 1);
+    ippAddBoolean(*driver_attrs, IPP_TAG_PRINTER, "vendor-boolean-supported", 1);
+
+    ippAddInteger(*driver_attrs, IPP_TAG_PRINTER, IPP_TAG_INTEGER, "vendor-integer-default", 7);
+    ippAddIntegers(*driver_attrs, IPP_TAG_PRINTER, IPP_TAG_INTEGER, "vendor-integer-supported", (int)(sizeof(integers) / sizeof(integers[0])), integers);
+
+    ippAddString(*driver_attrs, IPP_TAG_PRINTER, IPP_TAG_KEYWORD, "vendor-keyword-default", NULL, "two-fish");
+    ippAddStrings(*driver_attrs, IPP_TAG_PRINTER, IPP_CONST_TAG(IPP_TAG_KEYWORD), "vendor-keyword-supported", (int)(sizeof(keywords) / sizeof(keywords[0])), NULL, keywords);
+
+    ippAddInteger(*driver_attrs, IPP_TAG_PRINTER, IPP_TAG_INTEGER, "vendor-range-default", 42);
+    ippAddRange(*driver_attrs, IPP_TAG_PRINTER, "vendor-range-supported", -100, 100);
+
+    ippAddString(*driver_attrs, IPP_TAG_PRINTER, IPP_TAG_TEXT, "vendor-text-default", NULL, "Hello, World!");
   }
 
   // Fill out ready and default media (default == ready media from the first source)
@@ -412,27 +473,25 @@ pwg_identify(
 
 static bool				// O - `true` on success, `false` on failure
 pwg_print(
-    pappl_job_t      *job,		// I - Job
-    pappl_poptions_t *options,		// I - Job options
-    pappl_device_t   *device)		// I - Print device (unused)
+    pappl_job_t        *job,		// I - Job
+    pappl_pr_options_t *options,	// I - Job options (unused)
+    pappl_device_t     *device)		// I - Print device (unused)
 {
-  int		infd,			// Input file
-		outfd;			// Output file
-  char		outname[1024];		// Output filename
+  int		fd;			// Input file
   ssize_t	bytes;			// Bytes read/written
   char		buffer[65536];		// Read/write buffer
 
 
+  (void)options;
+
   papplJobSetImpressions(job, 1);
 
-  infd  = open(papplJobGetFilename(job), O_RDONLY);
-  outfd = papplJobOpenFile(job, outname, sizeof(outname), ".", "pwg", "w");
+  fd  = open(papplJobGetFilename(job), O_RDONLY);
 
-  while ((bytes = read(infd, buffer, sizeof(buffer))) > 0)
-    write(outfd, buffer, (size_t)bytes);
+  while ((bytes = read(fd, buffer, sizeof(buffer))) > 0)
+    papplDeviceWrite(device, buffer, (size_t)bytes);
 
-  close(infd);
-  close(outfd);
+  close(fd);
 
   papplJobSetImpressionsCompleted(job, 1);
 
@@ -446,17 +505,17 @@ pwg_print(
 
 static bool				// O - `true` on success, `false` on failure
 pwg_rendjob(
-    pappl_job_t      *job,		// I - Job
-    pappl_poptions_t *options,		// I - Job options
-    pappl_device_t   *device)		// I - Print device (unused)
+    pappl_job_t        *job,		// I - Job
+    pappl_pr_options_t *options,	// I - Job options (unused)
+    pappl_device_t     *device)		// I - Print device (unused)
 {
   pwg_job_data_t	*pwg = (pwg_job_data_t *)papplJobGetData(job);
 					// Job data
 
   (void)options;
+  (void)device;
 
   cupsRasterClose(pwg->ras);
-  close(pwg->fd);
 
   free(pwg);
   papplJobSetData(job, NULL);
@@ -471,10 +530,10 @@ pwg_rendjob(
 
 static bool				// O - `true` on success, `false` on failure
 pwg_rendpage(
-    pappl_job_t      *job,		// I - Job
-    pappl_poptions_t *options,		// I - Job options
-    pappl_device_t   *device,		// I - Print device (unused)
-    unsigned         page)		// I - Page number
+    pappl_job_t        *job,		// I - Job
+    pappl_pr_options_t *options,	// I - Job options
+    pappl_device_t     *device,		// I - Print device (unused)
+    unsigned           page)		// I - Page number
 {
   pwg_job_data_t	*pwg = (pwg_job_data_t *)papplJobGetData(job);
 					// PWG driver data
@@ -483,6 +542,7 @@ pwg_rendpage(
   pappl_supply_t	supplies[5];	// Supply-level data
 
 
+  (void)device;
   (void)page;
 
   if (papplPrinterGetSupplies(printer, 5, supplies) == 5)
@@ -542,25 +602,19 @@ pwg_rendpage(
 
 static bool				// O - `true` on success, `false` on failure
 pwg_rstartjob(
-    pappl_job_t      *job,		// I - Job
-    pappl_poptions_t *options,		// I - Job options
-    pappl_device_t   *device)		// I - Print device (unused)
+    pappl_job_t        *job,		// I - Job
+    pappl_pr_options_t *options,	// I - Job options
+    pappl_device_t     *device)		// I - Print device (unused)
 {
   pwg_job_data_t *pwg = (pwg_job_data_t *)calloc(1, sizeof(pwg_job_data_t));
 					// PWG driver data
-  const char	*outdir = getenv("PAPPL_PWG_OUTPUT");
-					// Output directory
-  char		outname[1024];		// Output filename
 
 
   (void)options;
 
   papplJobSetData(job, pwg);
 
-  pwg->fd  = papplJobOpenFile(job, outname, sizeof(outname), outdir ? outdir : ".", "pwg", "w");
-  pwg->ras = cupsRasterOpen(pwg->fd, CUPS_RASTER_WRITE_PWG);
-
-  papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "Writing PWG output to '%s'.", outname);
+  pwg->ras = cupsRasterOpenIO((cups_raster_iocb_t)papplDeviceWrite, device, CUPS_RASTER_WRITE_PWG);
 
   return (1);
 }
@@ -572,14 +626,15 @@ pwg_rstartjob(
 
 static bool				// O - `true` on success, `false` on failure
 pwg_rstartpage(
-    pappl_job_t      *job,		// I - Job
-    pappl_poptions_t *options,		// I - Job options
-    pappl_device_t   *device,		// I - Print device (unused)
-    unsigned         page)		// I - Page number
+    pappl_job_t        *job,		// I - Job
+    pappl_pr_options_t *options,	// I - Job options
+    pappl_device_t     *device,		// I - Print device (unused)
+    unsigned           page)		// I - Page number
 {
   pwg_job_data_t	*pwg = (pwg_job_data_t *)papplJobGetData(job);
 					// PWG driver data
 
+  (void)device;
   (void)page;
 
   memset(pwg->colorants, 0, sizeof(pwg->colorants));
@@ -589,13 +644,13 @@ pwg_rstartpage(
 
 
 //
-// 'pwg_rwrite()' - Write a raster line.
+// 'pwg_rwriteline()' - Write a raster line.
 //
 
 static bool				// O - `true` on success, `false` on failure
-pwg_rwrite(
+pwg_rwriteline(
     pappl_job_t         *job,		// I - Job
-    pappl_poptions_t    *options,	// I - Job options
+    pappl_pr_options_t  *options,	// I - Job options
     pappl_device_t      *device,	// I - Print device (unused)
     unsigned            y,		// I - Line number
     const unsigned char *line)		// I - Line
@@ -605,6 +660,7 @@ pwg_rwrite(
   pwg_job_data_t	*pwg = (pwg_job_data_t *)papplJobGetData(job);
 					// PWG driver data
 
+  (void)device;
   (void)y;
 
   // Add the colorant usage for this line (for simulation purposes - normally
@@ -678,24 +734,24 @@ pwg_rwrite(
 	for (lineptr = line; lineptr < lineend; lineptr += 3)
         {
           // Convert RGB to CMYK using simple transform...
-          unsigned char c = 255 - lineptr[0];
-          unsigned char m = 255 - lineptr[1];
-          unsigned char y = 255 - lineptr[2];
-          unsigned char k = c;
+          unsigned char cc = 255 - lineptr[0];
+          unsigned char cm = 255 - lineptr[1];
+          unsigned char cy = 255 - lineptr[2];
+          unsigned char ck = cc;
 
-          if (k > m)
-            k = m;
-	  if (k > y)
-	    k = y;
+          if (ck > cm)
+            ck = cm;
+	  if (ck > cy)
+	    ck = cy;
 
-	  c -= k;
-	  m -= k;
-	  y -= k;
+	  cc -= ck;
+	  cm -= ck;
+	  cy -= ck;
 
-          pwg->colorants[0] += c;
-          pwg->colorants[1] += m;
-          pwg->colorants[2] += y;
-          pwg->colorants[3] += k;
+          pwg->colorants[0] += cc;
+          pwg->colorants[1] += cm;
+          pwg->colorants[2] += cy;
+          pwg->colorants[3] += ck;
         }
         break;
 
@@ -726,10 +782,7 @@ static bool				// O - `true` on success, `false` on failure
 pwg_status(
     pappl_printer_t *printer)		// I - Printer
 {
-  char	driver_name[256];		// Driver name
-
-
-  if (!strncmp(papplPrinterGetDriverName(printer, driver_name, sizeof(driver_name)), "pwg_common-", 11))
+  if (!strncmp(papplPrinterGetDriverName(printer), "pwg_common-", 11))
   {
     // Supply levels...
     static pappl_supply_t supply[5] =	// Supply level data
@@ -759,51 +812,36 @@ pwg_status(
 // 'pwg_testpage()' - Return a test page file to print
 //
 
-static const char *
+static const char *			// O - Filename or `NULL`
 pwg_testpage(
     pappl_printer_t *printer,		// I - Printer
     char            *buffer,		// I - File Buffer
     size_t          bufsize)		// I - Buffer Size
 {
-  cups_dir_t	*dir;			// Directory pointer
-  cups_dentry_t	*dent;			// Current directory entry
-  const char	*dirs[3] = {".", "..", "../pappl"},
-					// Directories
-		*testfile;		// Global Print Test File
-  pappl_pdriver_data_t data;		// Driver data
+  const char		*testfile;	// Test File
+  pappl_pr_driver_data_t data;		// Driver data
 
 
-  if ((testfile = getenv("TESTFILE")) != NULL)
-    return testfile;
+  // Get the printer capabilities...
+  papplPrinterGetDriverData(printer, &data);
 
-  papplPrinterGetPrintDriverData(printer, &data);
+  // Find the right test file...
+  if (data.color_supported & PAPPL_COLOR_MODE_COLOR)
+    testfile = "portrait-color.png";
+  else
+    testfile = "portrait-gray.png";
 
-  // Search in directories for testfile...
-  for (int i = 0 ; i < 3 ; i++)
+  strlcpy(buffer, testfile, bufsize);
+  if (access(buffer, R_OK))
+    snprintf(buffer, bufsize, "testsuite/%s", testfile);
+
+  if (access(buffer, R_OK))
   {
-    if ((dir = cupsDirOpen(dirs[i])) == NULL)
-      continue;
-
-    while ((dent = cupsDirRead(dir)) != NULL)
-    {
-      // Skip dot files, directories, and files other than PNG...
-      if (dent->filename[0] == '.' || !S_ISREG(dent->fileinfo.st_mode) || strcmp(dent->filename + strlen(dent->filename) - 3, "png"))
-        continue;
-
-      // Look for standard PNG test files...
-      if (!strncmp(dent->filename, "testpage", 8))
-      {
-        if (((data.color_supported | PAPPL_COLOR_MODE_COLOR) && !strcmp(strchr(dent->filename, '-') + 1, "color.png")) || (!strcmp(strchr(dent->filename, '-') + 1, "grayscale.png")))
-        {
-          snprintf(buffer, bufsize, "%s/%s", dirs[i], dent->filename);
-          cupsDirClose(dir);
-          return buffer;
-        }
-      }
-    }
-
-    cupsDirClose(dir);
+    *buffer = '\0';
+    return (NULL);
   }
-
-  return NULL;
+  else
+  {
+    return (buffer);
+  }
 }

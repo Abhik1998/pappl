@@ -14,6 +14,7 @@ OBJS	=	\
 		client.o \
 		client-accessors.o \
 		client-auth.o \
+		client-ipp.o \
 		client-webif.o \
 		contact.o \
 		device.o \
@@ -21,9 +22,9 @@ OBJS	=	\
 		device-network.o \
 		device-usb.o \
 		dnssd.o \
-		ipp.o \
 		job-accessors.o \
 		job-filter.o \
+		job-ipp.o \
 		job-process.o \
 		job.o \
 		link.o \
@@ -35,14 +36,18 @@ OBJS	=	\
 		printer.o \
 		printer-accessors.o \
 		printer-driver.o \
+		printer-ipp.o \
 		printer-raw.o \
 		printer-support.o \
+		printer-usb.o \
 		printer-webif.o \
 		resource.o \
 		snmp.o \
 		system.o \
 		system-accessors.o \
+		system-ipp.o \
 		system-loadsave.o \
+		system-printer.o \
 		system-webif.o \
 		util.o
 
@@ -57,15 +62,27 @@ HEADERS	=	\
 		printer.h \
 		system.h
 
-DATA	=	\
-		testpage-color.png \
-		testpage-grayscale.png
-
 RESOURCES =	\
 		icon-sm.png \
 		icon-md.png \
 		icon-lg.png \
 		style.css
+
+DOCFLAGS =	\
+		--author "Michael R Sweet" \
+		--copyright "Copyright (c) 2020 by Michael R Sweet" \
+		--docversion $(PAPPL_VERSION)
+
+.SUFFIXES:	md
+DOCFILES =	\
+		device.md \
+		hello-world.md \
+		introduction.md \
+		job.md \
+		mainloop.md \
+		printer.md \
+		resource.md \
+		system.md
 
 TARGETS	=	$(LIBPAPPL) libpappl.a
 
@@ -87,28 +104,32 @@ distclean:	clean
 
 # Update dependencies
 depend:
-	$(CC) -MM $(CFLAGS) $(OBJS:.o=.c) | sed -e '1,$$s/ \/usr\/include\/[^ ]*//g'  -e '1,$$s/ \/usr\/local\/include\/[^ ]*//g' >Dependencies
+	$(CC) -MM $(CFLAGS) $(OBJS:.o=.c) | sed -e '1,$$s/ \/usr\/include\/[^ ]*//g' -e '1,$$s/ \/usr\/local\/include\/[^ ]*//g' >Dependencies
 
 
 # Generate documentation uaing codedoc (https://www.msweet.org/codedoc)
 doc:
 	echo Generating pappl.html...
-	codedoc pappl.xml $(HEADERS) $(OBJS:.o=.c) >../doc/pappl.html
+	codedoc $(DOCFLAGS) --title "PAPPL v$(PAPPL_VERSION_MAJOR).$(PAPPL_VERSION_MINOR) Programmers Manual" --coverimage ../doc/pappl-512.png --body ../doc/pappl-body.md pappl.xml $(HEADERS) $(OBJS:.o=.c) >../doc/pappl.html
 	echo Generating pappl.epub...
-	codedoc pappl.xml --epub ../doc/pappl.epub
+	codedoc $(DOCFLAGS) --title "PAPPL v$(PAPPL_VERSION_MAJOR).$(PAPPL_VERSION_MINOR) Programmers Manual" --coverimage epub.png --body ../doc/pappl-body.md pappl.xml --epub ../doc/pappl.epub
 	$(RM) pappl.xml
 	echo Generating pappl-client.3...
-	codedoc --man pappl-client --section 3 client.h client*.c >../man/pappl-client.3
+	codedoc $(DOCFLAGS) --title "pappl client functions" --man pappl-client --section 3 --body ../man/pappl-client-body.man --footer ../man/pappl-footer.man client.h client*.c >../man/pappl-client.3
 	echo Generating pappl-device.3...
-	codedoc --man pappl-device --section 3 device.h device.c >../man/pappl-device.3
+	codedoc $(DOCFLAGS) --title "pappl device functions" --man pappl-device --section 3 --body ../man/pappl-device-body.man --footer ../man/pappl-footer.man device.h device.c >../man/pappl-device.3
 	echo Generating pappl-job.3...
-	codedoc --man pappl-job --section 3 job.h job*.c >../man/pappl-job.3
+	codedoc $(DOCFLAGS) --title "pappl job functions" --man pappl-job --section 3 --body ../man/pappl-job-body.man --footer ../man/pappl-footer.man job.h job*.c >../man/pappl-job.3
 	echo Generating pappl-log.3...
-	codedoc --man pappl-log --section 3 log.h log.c >../man/pappl-log.3
+	codedoc $(DOCFLAGS) --title "pappl logging functions" --man pappl-log --section 3 --body ../man/pappl-log-body.man --footer ../man/pappl-footer.man log.h log.c >../man/pappl-log.3
+	echo Generating pappl-mainloop.3...
+	codedoc $(DOCFLAGS) --title "pappl main loop functions" --man pappl-mainloop --section 3 --body ../man/pappl-mainloop-body.man --footer ../man/pappl-footer.man mainloop.h mainloop*.c >../man/pappl-mainloop.3
 	echo Generating pappl-printer.3...
-	codedoc --man pappl-printer --section 3 printer.h printer*.c >../man/pappl-printer.3
+	codedoc $(DOCFLAGS) --title "pappl printer functions" --man pappl-printer --section 3 --body ../man/pappl-printer-body.man --footer ../man/pappl-footer.man printer.h printer*.c >../man/pappl-printer.3
+	echo Generating pappl-resource.3...
+	codedoc $(DOCFLAGS) --title "pappl resource functions" --man pappl-resource --section 3 --body ../man/pappl-resource-body.man --footer ../man/pappl-footer.man link.c resource.c >../man/pappl-resource.3
 	echo Generating pappl-system.3...
-	codedoc --man pappl-system --section 3 system.h system*.c >../man/pappl-system.3
+	codedoc $(DOCFLAGS) --title "pappl system functions" --man pappl-system --section 3 --body ../man/pappl-system-body.man --footer ../man/pappl-footer.man system.h system*.c >../man/pappl-system.3
 
 
 # Install everything
@@ -132,7 +153,7 @@ install:	$(TARGETS)
 	$(INSTALL) -c -m 644 pappl.pc $(BUILDROOT)$(libdir)/pkgconfig
 	echo Installing data files in $(BUILDROOT)$(datadir)/pappl...
 	$(INSTALL) -d -m 755 $(BUILDROOT)$(datadir)/pappl
-	for file in $(DATA); do \
+	for file in $(RESOURCES); do \
 		$(INSTALL) -c -m 644 $$file $(BUILDROOT)$(datadir)/pappl; \
 	done
 	echo Installing header files in $(BUILDROOT)$(includedir)/pappl...
@@ -167,9 +188,9 @@ libpappl.1.dylib:	$(OBJS)
 	echo Linking $@...
 	$(CC) $(DSOFLAGS) -dynamiclib -o $@ \
 		-install_name $(libdir)/$@ \
-		-current_version $(PAPPL_VERSION) -compatibility_version 1.0.0 \
+		-current_version $(PAPPL_VERSION_MAJOR).$(PAPPL_VERSION_MINOR) -compatibility_version 1.0 \
 		$(OBJS) $(LIBS)
-	$(CODE_SIGN) -s "$(CODESIGN_IDENTITY)" -o runtime --timestamp -i org.msweet.pappl.libpappl $@
+	$(CODE_SIGN) $(CSFLAGS) -i org.msweet.pappl.`basename $@ .1.dylib` $@
 	$(RM) `basename $@ .1.dylib`.dylib
 	$(LN) $@ `basename $@ .1.dylib`.dylib
 
