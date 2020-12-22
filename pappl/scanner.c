@@ -23,6 +23,12 @@ static int	compare_active_jobs(pappl_job_t *a, pappl_job_t *b);
 static int	compare_all_jobs(pappl_job_t *a, pappl_job_t *b);
 static int	compare_completed_jobs(pappl_job_t * _papplPrinterInitPrintDriverDataa, pappl_job_t *b);
 
+//
+// comman types...
+//
+typedef struct _pappl_printer_s pappl_scanner_t;
+					// Scanner object
+
 
 //
 // 'papplPrinterCancelAllJobs()' - Cancel all jobs on the printer.
@@ -31,6 +37,7 @@ static int	compare_completed_jobs(pappl_job_t * _papplPrinterInitPrintDriverData
 // printed, it will be stopped at a convenient time (usually the end of a page)
 // so that the printer will be left in a known state.
 //
+
 
 void
 papplPrinterCancelAllJobs(

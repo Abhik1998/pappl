@@ -1,5 +1,5 @@
 //
-// System web interface functions for the Printer Application Framework
+// System web interface functions for the Scanner Application Framework
 //
 // Copyright © 2019-2020 by Michael R Sweet.
 // Copyright © 2010-2019 by Apple Inc.
