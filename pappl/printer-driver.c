@@ -127,7 +127,7 @@ _papplPrinterInitDriverData(
 // > Note: This function regenerates all of the driver-specific capability
 // > attributes like "media-col-database", "sides-supported", and so forth.
 // > Use the @link papplPrinterSetDriverDefaults@ or
-// > @link papplPrinterSetReadyMedia@` functions to efficiently change the
+// > @link papplPrinterSetReadyMedia@ functions to efficiently change the
 // > "xxx-default" or "xxx-ready" values, respectively.
 //
 
@@ -315,6 +315,7 @@ make_attrs(
 					// Collection values
   char			fn[32],		// FN (finishings) values
 			*ptr;		// Pointer into value
+  const char		*preferred;	// "document-format-preferred" value
   const char		*prefix;	// Prefix string
   const char		*max_name = NULL,// Maximum size
 		    	*min_name = NULL;// Minimum size
@@ -404,7 +405,7 @@ make_attrs(
   if (data->format && strcmp(data->format, "application/octet-stream"))
     svalues[num_values ++] = data->format;
 
-  for (filter = (_pappl_mime_filter_t *)cupsArrayFirst(system->filters); filter; filter = (_pappl_mime_filter_t *)cupsArrayNext(system->filters))
+  for (preferred = "image/urf", filter = (_pappl_mime_filter_t *)cupsArrayFirst(system->filters); filter; filter = (_pappl_mime_filter_t *)cupsArrayNext(system->filters))
   {
     if ((data->format && !strcmp(filter->dst, data->format)) || !strcmp(filter->dst, "image/pwg-raster"))
     {
@@ -415,9 +416,16 @@ make_attrs(
       }
 
       if (i >= num_values && num_values < (int)(sizeof(svalues) / sizeof(svalues[0])))
+      {
         svalues[num_values ++] = filter->src;
+
+        if (!strcmp(filter->src, "application/pdf"))
+          preferred = "application/pdf";
+      }
     }
   }
+
+  ippAddString(attrs, IPP_TAG_PRINTER, IPP_CONST_TAG(IPP_TAG_MIMETYPE), "document-format-preferred", NULL, preferred);
 
   ippAddStrings(attrs, IPP_TAG_PRINTER, IPP_TAG_MIMETYPE, "document-format-supported", num_values, NULL, svalues);
 
@@ -765,6 +773,11 @@ make_attrs(
   // media-type-supported
   if (data->num_type)
     ippAddStrings(attrs, IPP_TAG_PRINTER, IPP_CONST_TAG(IPP_TAG_KEYWORD), "media-type-supported", data->num_type, NULL, data->type);
+
+
+  // mopria-certified (Mopria-specific attribute)
+  if (!ippFindAttribute(attrs, "mopria-certified", IPP_TAG_ZERO))
+    ippAddString(attrs, IPP_TAG_PRINTER, IPP_CONST_TAG(IPP_TAG_TEXT), "mopria-certified", NULL, "1.3");
 
 
   // output-bin-supported
