@@ -16,7 +16,7 @@
 //
 
 #  include "base.h"
-#  include </home/abhik/pappl/config.h>
+#  include <config.h>
 #  include <limits.h>
 #  include <poll.h>
 #  include <sys/fcntl.h>
