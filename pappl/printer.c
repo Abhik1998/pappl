@@ -602,7 +602,7 @@ papplPrinterCreate(
     papplSystemAddResourceCallback(system, path, "text/html", (pappl_resource_cb_t)_papplPrinterWebDefaults, printer);
     papplPrinterAddLink(printer, "Printing Defaults", path, PAPPL_LOPTIONS_NAVIGATION | PAPPL_LOPTIONS_STATUS);
 
-    if (printer->driver_data.has_supplies)
+    if (printer->psdriver.driver_data.has_supplies)
     {
       snprintf(path, sizeof(path), "%s/supplies", printer->uriname);
       papplSystemAddResourceCallback(system, path, "text/html", (pappl_resource_cb_t)_papplPrinterWebSupplies, printer);
@@ -629,8 +629,8 @@ _papplPrinterDelete(
   _papplPrinterUnregisterDNSSDNoLock(printer);
 
   // If applicable, call the delete function...
-  if (printer->driver_data.delete_cb)
-    (printer->driver_data.delete_cb)(printer, &printer->driver_data);
+  if (printer->psdriver.driver_data.delete_cb)
+    (printer->psdriver.driver_data.delete_cb)(printer, &printer->psdriver.driver_data);
 
   // Delete jobs...
   cupsArrayDelete(printer->active_jobs);

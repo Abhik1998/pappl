@@ -64,7 +64,7 @@ papplJobCreatePrintOptions(
   if ((options = calloc(1, sizeof(pappl_pr_options_t))) == NULL)
     return (NULL);
 
-  options->media = printer->driver_data.media_default;
+  options->media = printer->psdriver.driver_data.media_default;
 
   pthread_rwlock_rdlock(&printer->rwlock);
 
@@ -105,7 +105,7 @@ papplJobCreatePrintOptions(
   }
 
   // media-xxx
-  options->media = printer->driver_data.media_default;
+  options->media = printer->psdriver.driver_data.media_default;
 
   if ((attr = ippFindAttribute(job->attrs, "media-col", IPP_TAG_BEGIN_COLLECTION)) != NULL)
   {
@@ -129,36 +129,36 @@ papplJobCreatePrintOptions(
 
   if (!options->media.source[0])
   {
-    for (i = 0; i < printer->driver_data.num_source; i ++)
+    for (i = 0; i < printer->psdriver.driver_data.num_source; i ++)
     {
-      if (!strcmp(options->media.size_name, printer->driver_data.media_ready[i].size_name))
+      if (!strcmp(options->media.size_name, printer->psdriver.driver_data.media_ready[i].size_name))
       {
-        strlcpy(options->media.source, printer->driver_data.source[i], sizeof(options->media.source));
+        strlcpy(options->media.source, printer->psdriver.driver_data.source[i], sizeof(options->media.source));
         break;
       }
     }
 
     if (!options->media.source[0])
-      strlcpy(options->media.source, printer->driver_data.media_default.source, sizeof(options->media.source));
+      strlcpy(options->media.source, printer->psdriver.driver_data.media_default.source, sizeof(options->media.source));
   }
 
   // orientation-requested
   if ((attr = ippFindAttribute(job->attrs, "orientation-requested", IPP_TAG_ENUM)) != NULL)
     options->orientation_requested = (ipp_orient_t)ippGetInteger(attr, 0);
-  else if (printer->driver_data.orient_default)
-    options->orientation_requested = printer->driver_data.orient_default;
+  else if (printer->psdriver.driver_data.orient_default)
+    options->orientation_requested = printer->psdriver.driver_data.orient_default;
   else
     options->orientation_requested = IPP_ORIENT_NONE;
 
   // output-bin
-  if (printer->driver_data.num_bin > 0)
+  if (printer->psdriver.driver_data.num_bin > 0)
   {
     const char		*value;		// Attribute string value
 
     if ((value = ippGetString(ippFindAttribute(job->attrs, "output-bin", IPP_TAG_ZERO), 0, NULL)) != NULL)
       strlcpy(options->output_bin, value, sizeof(options->output_bin));
     else
-      strlcpy(options->output_bin, printer->driver_data.bin[printer->driver_data.bin_default], sizeof(options->output_bin));
+      strlcpy(options->output_bin, printer->psdriver.driver_data.bin[printer->psdriver.driver_data.bin_default], sizeof(options->output_bin));
   }
 
   // page-ranges
@@ -203,7 +203,7 @@ papplJobCreatePrintOptions(
   if ((attr = ippFindAttribute(job->attrs, "print-color-mode", IPP_TAG_KEYWORD)) != NULL)
     options->print_color_mode = _papplColorModeValue(ippGetString(attr, 0, NULL));
   else
-    options->print_color_mode = printer->driver_data.color_default;
+    options->print_color_mode = printer->psdriver.driver_data.color_default;
 
   papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "print-color-mode=%s", _papplColorModeString(options->print_color_mode));
 
@@ -227,9 +227,9 @@ papplJobCreatePrintOptions(
   if ((attr = ippFindAttribute(job->attrs, "print-content-optimize", IPP_TAG_KEYWORD)) != NULL)
     options->print_content_optimize = _papplContentValue(ippGetString(attr, 0, NULL));
   else
-    options->print_content_optimize = printer->driver_data.content_default;
+    options->print_content_optimize = printer->psdriver.driver_data.content_default;
 
-  if (printer->driver_data.force_raster_type == PAPPL_PWG_RASTER_TYPE_BLACK_1)
+  if (printer->psdriver.driver_data.force_raster_type == PAPPL_PWG_RASTER_TYPE_BLACK_1)
   {
     // Force bitmap output...
     raster_type = "black_1";
@@ -237,16 +237,16 @@ papplJobCreatePrintOptions(
     if (options->print_color_mode == PAPPL_COLOR_MODE_BI_LEVEL)
       memset(options->dither, 127, sizeof(options->dither));
     else if (options->print_content_optimize == PAPPL_CONTENT_PHOTO || !strcmp(job->format, "image/jpeg"))
-      memcpy(options->dither, printer->driver_data.pdither, sizeof(options->dither));
+      memcpy(options->dither, printer->psdriver.driver_data.pdither, sizeof(options->dither));
     else
-      memcpy(options->dither, printer->driver_data.gdither, sizeof(options->dither));
+      memcpy(options->dither, printer->psdriver.driver_data.gdither, sizeof(options->dither));
   }
   else if (options->print_color_mode == PAPPL_COLOR_MODE_COLOR)
   {
     // Color output...
-    if (printer->driver_data.raster_types & PAPPL_PWG_RASTER_TYPE_SRGB_8)
+    if (printer->psdriver.driver_data.raster_types & PAPPL_PWG_RASTER_TYPE_SRGB_8)
       raster_type = "srgb_8";
-    else if (printer->driver_data.raster_types & PAPPL_PWG_RASTER_TYPE_ADOBE_RGB_8)
+    else if (printer->psdriver.driver_data.raster_types & PAPPL_PWG_RASTER_TYPE_ADOBE_RGB_8)
       raster_type = "adobe-rgb_8";
     else
       raster_type = "rgb_8";
@@ -254,7 +254,7 @@ papplJobCreatePrintOptions(
   else
   {
     // Monochrome output...
-    if (printer->driver_data.raster_types & PAPPL_PWG_RASTER_TYPE_SGRAY_8)
+    if (printer->psdriver.driver_data.raster_types & PAPPL_PWG_RASTER_TYPE_SGRAY_8)
       raster_type = "sgray_8";
     else
       raster_type = "black_8";
@@ -264,27 +264,27 @@ papplJobCreatePrintOptions(
   if ((attr = ippFindAttribute(job->attrs, "print-darkness", IPP_TAG_INTEGER)) != NULL)
     options->print_darkness = ippGetInteger(attr, 0);
   else
-    options->print_darkness = printer->driver_data.darkness_default;
+    options->print_darkness = printer->psdriver.driver_data.darkness_default;
 
-  options->darkness_configured = printer->driver_data.darkness_configured;
+  options->darkness_configured = printer->psdriver.driver_data.darkness_configured;
 
   // print-quality
   if ((attr = ippFindAttribute(job->attrs, "print-quality", IPP_TAG_ENUM)) != NULL)
     options->print_quality = (ipp_quality_t)ippGetInteger(attr, 0);
   else
-    options->print_quality = printer->driver_data.quality_default;
+    options->print_quality = printer->psdriver.driver_data.quality_default;
 
   // print-scaling
   if ((attr = ippFindAttribute(job->attrs, "print-scaling", IPP_TAG_KEYWORD)) != NULL)
     options->print_scaling = _papplScalingValue(ippGetString(attr, 0, NULL));
   else
-    options->print_scaling = printer->driver_data.scaling_default;
+    options->print_scaling = printer->psdriver.driver_data.scaling_default;
 
   // print-speed
   if ((attr = ippFindAttribute(job->attrs, "print-speed", IPP_TAG_INTEGER)) != NULL)
     options->print_speed = ippGetInteger(attr, 0);
   else
-    options->print_speed = printer->driver_data.speed_default;
+    options->print_speed = printer->psdriver.driver_data.speed_default;
 
   // printer-resolution
   if ((attr = ippFindAttribute(job->attrs, "printer-resolution", IPP_TAG_RESOLUTION)) != NULL)
@@ -296,36 +296,36 @@ papplJobCreatePrintOptions(
   else if (options->print_quality == IPP_QUALITY_DRAFT)
   {
     // print-quality=draft
-    options->printer_resolution[0] = printer->driver_data.x_resolution[0];
-    options->printer_resolution[1] = printer->driver_data.y_resolution[0];
+    options->printer_resolution[0] = printer->psdriver.driver_data.x_resolution[0];
+    options->printer_resolution[1] = printer->psdriver.driver_data.y_resolution[0];
   }
   else if (options->print_quality == IPP_QUALITY_NORMAL)
   {
     // print-quality=normal
-    i = printer->driver_data.num_resolution / 2;
-    options->printer_resolution[0] = printer->driver_data.x_resolution[i];
-    options->printer_resolution[1] = printer->driver_data.y_resolution[i];
+    i = printer->psdriver.driver_data.num_resolution / 2;
+    options->printer_resolution[0] = printer->psdriver.driver_data.x_resolution[i];
+    options->printer_resolution[1] = printer->psdriver.driver_data.y_resolution[i];
   }
   else
   {
     // print-quality=high
-    i = printer->driver_data.num_resolution - 1;
-    options->printer_resolution[0] = printer->driver_data.x_resolution[i];
-    options->printer_resolution[1] = printer->driver_data.y_resolution[i];
+    i = printer->psdriver.driver_data.num_resolution - 1;
+    options->printer_resolution[0] = printer->psdriver.driver_data.x_resolution[i];
+    options->printer_resolution[1] = printer->psdriver.driver_data.y_resolution[i];
   }
 
   // sides
   if ((attr = ippFindAttribute(job->attrs, "sides", IPP_TAG_KEYWORD)) != NULL)
     options->sides = _papplSidesValue(ippGetString(attr, 0, NULL));
-  else if (printer->driver_data.sides_default != PAPPL_SIDES_ONE_SIDED && options->num_pages != 1)
-    options->sides = printer->driver_data.sides_default;
+  else if (printer->psdriver.driver_data.sides_default != PAPPL_SIDES_ONE_SIDED && options->num_pages != 1)
+    options->sides = printer->psdriver.driver_data.sides_default;
   else
     options->sides = PAPPL_SIDES_ONE_SIDED;
 
   // Vendor options...
-  for (i = 0; i < printer->driver_data.num_vendor; i ++)
+  for (i = 0; i < printer->psdriver.driver_data.num_vendor; i ++)
   {
-    const char *name = printer->driver_data.vendor[i];
+    const char *name = printer->psdriver.driver_data.vendor[i];
 					// Vendor attribute name
 
     if ((attr = ippFindAttribute(job->attrs, name, IPP_TAG_ZERO)) == NULL)
@@ -346,7 +346,7 @@ papplJobCreatePrintOptions(
   }
 
   // Figure out the PWG raster header...
-  cupsRasterInitPWGHeader(&options->header, pwgMediaForPWG(options->media.size_name), raster_type, options->printer_resolution[0], options->printer_resolution[1], _papplSidesString(options->sides), sheet_back[printer->driver_data.duplex]);
+  cupsRasterInitPWGHeader(&options->header, pwgMediaForPWG(options->media.size_name), raster_type, options->printer_resolution[0], options->printer_resolution[1], _papplSidesString(options->sides), sheet_back[printer->psdriver.driver_data.duplex]);
 
   options->header.cupsInteger[CUPS_RASTER_PWG_TotalPageCount] = (unsigned)options->copies * options->num_pages;
 
@@ -366,19 +366,19 @@ papplJobCreatePrintOptions(
   papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "finishings=0x%x", options->finishings);
   papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "media-col.bottom-margin=%d", options->media.bottom_margin);
   papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "media-col.left-margin=%d", options->media.left_margin);
-  if (printer->driver_data.left_offset_supported[1])
+  if (printer->psdriver.driver_data.left_offset_supported[1])
     papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "media-col.left-offset=%d", options->media.left_offset);
   papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "media-col.right-margin=%d", options->media.right_margin);
   papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "media-col.size=%dx%d", options->media.size_width, options->media.size_length);
   papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "media-col.size-name='%s'", options->media.size_name);
-  if (printer->driver_data.num_source)
+  if (printer->psdriver.driver_data.num_source)
     papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "media-col.source='%s'", options->media.source);
   papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "media-col.top-margin=%d", options->media.top_margin);
-  if (printer->driver_data.top_offset_supported[1])
+  if (printer->psdriver.driver_data.top_offset_supported[1])
     papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "media-col.top-offset=%d", options->media.top_offset);
-  if (printer->driver_data.tracking_supported)
+  if (printer->psdriver.driver_data.tracking_supported)
     papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "media-col.tracking='%s'", _papplMediaTrackingString(options->media.tracking));
-  if (printer->driver_data.num_type)
+  if (printer->psdriver.driver_data.num_type)
     papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "media-col.type='%s'", options->media.type);
   papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "orientation-requested=%s", ippEnumString("orientation-requested", (int)options->orientation_requested));
   papplLogJob(job, PAPPL_LOGLEVEL_DEBUG, "page-ranges=%u-%u", options->first_page, options->last_page);
@@ -431,7 +431,7 @@ _papplJobProcess(pappl_job_t *job)	// I - Job
   start_job(job);
 
   // Do file-specific conversions...
-  if ((filter = _papplSystemFindMIMEFilter(job->system, job->format, job->printer->driver_data.format)) == NULL)
+  if ((filter = _papplSystemFindMIMEFilter(job->system, job->format, job->printer->psdriver.driver_data.format)) == NULL)
     filter =_papplSystemFindMIMEFilter(job->system, job->format, "image/pwg-raster");
 
   if (filter)
@@ -439,7 +439,7 @@ _papplJobProcess(pappl_job_t *job)	// I - Job
     if (!(filter->cb)(job, job->printer->device, filter->cbdata))
       job->state = IPP_JSTATE_ABORTED;
   }
-  else if (!strcmp(job->format, job->printer->driver_data.format))
+  else if (!strcmp(job->format, job->printer->psdriver.driver_data.format))
   {
     if (!filter_raw(job, job->printer->device))
       job->state = IPP_JSTATE_ABORTED;
@@ -511,7 +511,7 @@ _papplJobProcessRaster(
 
   options = papplJobCreatePrintOptions(job, (unsigned)job->impressions, header.cupsBitsPerPixel > 8);
 
-  if (!(printer->driver_data.rstartjob_cb)(job, options, job->printer->device))
+  if (!(printer->psdriver.driver_data.rstartjob_cb)(job, options, job->printer->device))
   {
     job->state = IPP_JSTATE_ABORTED;
     goto complete_job;
@@ -540,7 +540,7 @@ _papplJobProcessRaster(
       break;
     }
 
-    if (header.cupsBitsPerPixel > 8 && !(printer->driver_data.color_supported & PAPPL_COLOR_MODE_COLOR))
+    if (header.cupsBitsPerPixel > 8 && !(printer->psdriver.driver_data.color_supported & PAPPL_COLOR_MODE_COLOR))
     {
       papplLogJob(job, PAPPL_LOGLEVEL_ERROR, "Unsupported raster data seen.");
       papplJobSetReasons(job, PAPPL_JREASON_DOCUMENT_UNPRINTABLE_ERROR, PAPPL_JREASON_NONE);
@@ -551,7 +551,7 @@ _papplJobProcessRaster(
     if (options->header.cupsBitsPerPixel >= 8 && header.cupsBitsPerPixel >= 8)
       options->header = header;		// Use page header from client
 
-    if (!(printer->driver_data.rstartpage_cb)(job, options, job->printer->device, page))
+    if (!(printer->psdriver.driver_data.rstartpage_cb)(job, options, job->printer->device, page))
     {
       job->state = IPP_JSTATE_ABORTED;
       break;
@@ -628,10 +628,10 @@ _papplJobProcessRaster(
 	      *lineptr = byte;
 	  }
 
-          (printer->driver_data.rwriteline_cb)(job, options, job->printer->device, y, line);
+          (printer->psdriver.driver_data.rwriteline_cb)(job, options, job->printer->device, y, line);
         }
         else
-          (printer->driver_data.rwriteline_cb)(job, options, job->printer->device, y, pixels);
+          (printer->psdriver.driver_data.rwriteline_cb)(job, options, job->printer->device, y, pixels);
       }
       else
         break;
@@ -655,7 +655,7 @@ _papplJobProcessRaster(
 
         while (y < options->header.cupsHeight)
         {
-	  (printer->driver_data.rwriteline_cb)(job, options, job->printer->device, y, line);
+	  (printer->psdriver.driver_data.rwriteline_cb)(job, options, job->printer->device, y, line);
           y ++;
         }
       }
@@ -668,7 +668,7 @@ _papplJobProcessRaster(
 
         while (y < options->header.cupsHeight)
         {
-	  (printer->driver_data.rwriteline_cb)(job, options, job->printer->device, y, pixels);
+	  (printer->psdriver.driver_data.rwriteline_cb)(job, options, job->printer->device, y, pixels);
           y ++;
         }
       }
@@ -677,7 +677,7 @@ _papplJobProcessRaster(
     free(pixels);
     free(line);
 
-    if (!(printer->driver_data.rendpage_cb)(job, options, job->printer->device, page))
+    if (!(printer->psdriver.driver_data.rendpage_cb)(job, options, job->printer->device, page))
     {
       job->state = IPP_JSTATE_ABORTED;
       break;
@@ -694,7 +694,7 @@ _papplJobProcessRaster(
   }
   while (cupsRasterReadHeader2(ras, &header));
 
-  if (!(printer->driver_data.rendjob_cb)(job, options, job->printer->device))
+  if (!(printer->psdriver.driver_data.rendjob_cb)(job, options, job->printer->device))
     job->state = IPP_JSTATE_ABORTED;
   else if (header_pages == 0)
     papplJobSetImpressions(job, (int)page);
@@ -815,7 +815,7 @@ filter_raw(pappl_job_t    *job,		// I - Job
   papplJobSetImpressions(job, 1);
   options = papplJobCreatePrintOptions(job, 1, false);
 
-  if (!(job->printer->driver_data.printfile_cb)(job, options, device))
+  if (!(job->printer->psdriver.driver_data.printfile_cb)(job, options, device))
   {
     papplJobDeletePrintOptions(options);
     return (false);

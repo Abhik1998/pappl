@@ -374,11 +374,11 @@ _papplPrinterRegisterDNSSDNoLock(
       break;
   }
 
-  snprintf(product, sizeof(product), "(%s)", printer->driver_data.make_and_model);
+  snprintf(product, sizeof(product), "(%s)", printer->psdriver.driver_data.make_and_model);
 
-  for (i = 0, max_width = 0; i < printer->driver_data.num_media; i ++)
+  for (i = 0, max_width = 0; i < printer->psdriver.driver_data.num_media; i ++)
   {
-    pwg_media_t *media = pwgMediaForPWG(printer->driver_data.media[i]);
+    pwg_media_t *media = pwgMediaForPWG(printer->psdriver.driver_data.media[i]);
 					// Current media size
 
     if (media && media->width > max_width)
@@ -462,8 +462,8 @@ _papplPrinterRegisterDNSSDNoLock(
   // Build the TXT record for IPP...
   TXTRecordCreate(&txt, 1024, NULL);
   TXTRecordSetValue(&txt, "rp", (uint8_t)strlen(printer->resource) - 1, printer->resource + 1);
-  if (printer->driver_data.make_and_model[0])
-    TXTRecordSetValue(&txt, "ty", (uint8_t)strlen(printer->driver_data.make_and_model), printer->driver_data.make_and_model);
+  if (printer->psdriver.driver_data.make_and_model[0])
+    TXTRecordSetValue(&txt, "ty", (uint8_t)strlen(printer->psdriver.driver_data.make_and_model), printer->psdriver.driver_data.make_and_model);
   TXTRecordSetValue(&txt, "adminurl", (uint8_t)strlen(adminurl), adminurl);
   if (printer->location)
     TXTRecordSetValue(&txt, "note", (uint8_t)strlen(printer->location), printer->location);
@@ -477,7 +477,7 @@ _papplPrinterRegisterDNSSDNoLock(
   if (urf[0])
     TXTRecordSetValue(&txt, "URF", (uint8_t)strlen(urf), urf);
   TXTRecordSetValue(&txt, "Color", 1, ippGetBoolean(color_supported, 0) ? "T" : "F");
-  TXTRecordSetValue(&txt, "Duplex", 1, (printer->driver_data.sides_supported & PAPPL_SIDES_TWO_SIDED_LONG_EDGE) ? "T" : "F");
+  TXTRecordSetValue(&txt, "Duplex", 1, (printer->psdriver.driver_data.sides_supported & PAPPL_SIDES_TWO_SIDED_LONG_EDGE) ? "T" : "F");
   TXTRecordSetValue(&txt, "TLS", 3, "1.2");
   TXTRecordSetValue(&txt, "txtvers", 1, "1");
   TXTRecordSetValue(&txt, "qtotal", 1, "1");
@@ -560,8 +560,8 @@ _papplPrinterRegisterDNSSDNoLock(
   {
     // Register a PDL datastream (raw socket) service...
     TXTRecordCreate(&txt, 1024, NULL);
-    if (printer->driver_data.make_and_model[0])
-      TXTRecordSetValue(&txt, "ty", (uint8_t)strlen(printer->driver_data.make_and_model), printer->driver_data.make_and_model);
+    if (printer->psdriver.driver_data.make_and_model[0])
+      TXTRecordSetValue(&txt, "ty", (uint8_t)strlen(printer->psdriver.driver_data.make_and_model), printer->psdriver.driver_data.make_and_model);
     TXTRecordSetValue(&txt, "adminurl", (uint8_t)strlen(adminurl), adminurl);
     if (printer->location)
       TXTRecordSetValue(&txt, "note", (uint8_t)strlen(printer->location), printer->location);
@@ -571,7 +571,7 @@ _papplPrinterRegisterDNSSDNoLock(
     if ((value = ippGetString(printer_uuid, 0, NULL)) != NULL)
       TXTRecordSetValue(&txt, "UUID", (uint8_t)strlen(value) - 9, value + 9);
     TXTRecordSetValue(&txt, "Color", 1, ippGetBoolean(color_supported, 0) ? "T" : "F");
-    TXTRecordSetValue(&txt, "Duplex", 1, (printer->driver_data.sides_supported & PAPPL_SIDES_TWO_SIDED_LONG_EDGE) ? "T" : "F");
+    TXTRecordSetValue(&txt, "Duplex", 1, (printer->psdriver.driver_data.sides_supported & PAPPL_SIDES_TWO_SIDED_LONG_EDGE) ? "T" : "F");
     TXTRecordSetValue(&txt, "txtvers", 1, "1");
     TXTRecordSetValue(&txt, "qtotal", 1, "1");
     TXTRecordSetValue(&txt, "priority", 3, "100");
@@ -620,8 +620,8 @@ _papplPrinterRegisterDNSSDNoLock(
   // Create the TXT record...
   txt = NULL;
   txt = avahi_string_list_add_printf(txt, "rp=%s", printer->resource + 1);
-  if (printer->driver_data.make_and_model[0])
-    txt = avahi_string_list_add_printf(txt, "ty=%s", printer->driver_data.make_and_model);
+  if (printer->psdriver.driver_data.make_and_model[0])
+    txt = avahi_string_list_add_printf(txt, "ty=%s", printer->psdriver.driver_data.make_and_model);
   txt = avahi_string_list_add_printf(txt, "adminurl=%s", adminurl);
   txt = avahi_string_list_add_printf(txt, "note=%s", printer->location ? printer->location : "");
   txt = avahi_string_list_add_printf(txt, "pdl=%s", formats);
@@ -633,7 +633,7 @@ _papplPrinterRegisterDNSSDNoLock(
     txt = avahi_string_list_add_printf(txt, "URF=%s", urf);
   txt = avahi_string_list_add_printf(txt, "TLS=1.2");
   txt = avahi_string_list_add_printf(txt, "Color=%s", ippGetBoolean(color_supported, 0) ? "T" : "F");
-  txt = avahi_string_list_add_printf(txt, "Duplex=%s", (printer->driver_data.sides_supported & PAPPL_SIDES_TWO_SIDED_LONG_EDGE) ? "T" : "F");
+  txt = avahi_string_list_add_printf(txt, "Duplex=%s", (printer->psdriver.driver_data.sides_supported & PAPPL_SIDES_TWO_SIDED_LONG_EDGE) ? "T" : "F");
   txt = avahi_string_list_add_printf(txt, "txtvers=1");
   txt = avahi_string_list_add_printf(txt, "qtotal=1");
   txt = avahi_string_list_add_printf(txt, "priority=0");
@@ -727,15 +727,15 @@ _papplPrinterRegisterDNSSDNoLock(
   {
     // Register a PDL datastream (raw socket) service...
     txt = NULL;
-    if (printer->driver_data.make_and_model[0])
-      txt = avahi_string_list_add_printf(txt, "ty=%s", printer->driver_data.make_and_model);
+    if (printer->psdriver.driver_data.make_and_model[0])
+      txt = avahi_string_list_add_printf(txt, "ty=%s", printer->psdriver.driver_data.make_and_model);
     txt = avahi_string_list_add_printf(txt, "adminurl=%s", adminurl);
     txt = avahi_string_list_add_printf(txt, "note=%s", printer->location ? printer->location : "");
     txt = avahi_string_list_add_printf(txt, "pdl=%s", formats);
     if ((value = ippGetString(printer_uuid, 0, NULL)) != NULL)
       txt = avahi_string_list_add_printf(txt, "UUID=%s", value + 9);
     txt = avahi_string_list_add_printf(txt, "Color=%s", ippGetBoolean(color_supported, 0) ? "T" : "F");
-    txt = avahi_string_list_add_printf(txt, "Duplex=%s", (printer->driver_data.sides_supported & PAPPL_SIDES_TWO_SIDED_LONG_EDGE) ? "T" : "F");
+    txt = avahi_string_list_add_printf(txt, "Duplex=%s", (printer->psdriver.driver_data.sides_supported & PAPPL_SIDES_TWO_SIDED_LONG_EDGE) ? "T" : "F");
     txt = avahi_string_list_add_printf(txt, "txtvers=1");
     txt = avahi_string_list_add_printf(txt, "qtotal=1");
     txt = avahi_string_list_add_printf(txt, "priority=100");

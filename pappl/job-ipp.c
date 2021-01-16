@@ -699,7 +699,7 @@ ipp_send_document(
   else if ((attr = ippFindAttribute(job->attrs, "document-format-supplied", IPP_TAG_MIMETYPE)) != NULL)
     job->format = ippGetString(attr, 0, NULL);
   else
-    job->format = client->printer->driver_data.format;
+    job->format = client->printer->psdriver.driver_data.format;
 
   pthread_rwlock_unlock(&(client->printer->rwlock));
 

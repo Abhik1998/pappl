@@ -335,7 +335,7 @@ _papplJobSubmitFile(
 				// Extension on filename
 
     if (!ext)
-      job->format = job->printer->driver_data.format;
+      job->format = job->printer->psdriver.driver_data.format;
     else if (!strcmp(ext, ".jpg") || !strcmp(ext, ".jpeg"))
       job->format = "image/jpeg";
     else if (!strcmp(ext, ".png"))
@@ -351,7 +351,7 @@ _papplJobSubmitFile(
     else if (!strcmp(ext, ".ps"))
       job->format = "application/postscript";
     else
-      job->format = job->printer->driver_data.format;
+      job->format = job->printer->psdriver.driver_data.format;
   }
 
   // Save the print file information...
