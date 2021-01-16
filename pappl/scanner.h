@@ -90,7 +90,8 @@ enum pappl_scan_input_source			// IPP "input-source" bit values
   PAPPL_SCAN_INPUT_SOURCE_FILM_READER = 0x02,		// 'film-reader': scans documents from a microfilm reader
   PAPPL_SCAN_INPUT_SOURCE_PLATEN = 0x04,			// 'platen': scans a single page document from the scanner glass or platen
 };
-typedef unsigned pappl_scan_input_source_t;	// Bitfield for IPP "input-film-scan-mode" values for scan
+
+// typedef unsigned pappl_scan_input_source_t;	// Bitfield for IPP "input-film-scan-mode" values for scan
 
 typedef struct pappl_scan_region_s		// "input-scan-regions" values
 {

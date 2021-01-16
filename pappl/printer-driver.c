@@ -11,8 +11,8 @@
 // Include necessary headers...
 //
 
-#include "printer-private.h"
-#include "system-private.h"
+#include "pappl-private.h"
+// #include "scanner-driver.c"
 
 
 //
@@ -151,9 +151,9 @@ papplPrinterSetDriverData(
 
   // Create printer (capability) attributes based on driver data...
   ippDelete(printer->driver_attrs);
-  if (printer->type == PAPPL_SERVICE_TYPE_SCAN)
-    printer->driver_attrs = make_attrs_scan(printer->system, &printer->psdriver.driver_data);
-  else
+  // if (PAPPL_SERVICE_TYPE_SCAN == 1)
+  //   printer->driver_attrs = make_attrs_scan(printer->system, &printer->psdriver.driver_data);
+  // else
     printer->driver_attrs = make_attrs(printer->system, &printer->psdriver.driver_data);
 
   if (attrs)
@@ -195,21 +195,21 @@ papplPrinterSetDriverDefaults(
   pthread_rwlock_wrlock(&printer->rwlock);
 
   // Copy xxx_default values...
-  printer->driver_data.color_default          = data->color_default;
-  printer->driver_data.content_default        = data->content_default;
-  printer->driver_data.quality_default        = data->quality_default;
-  printer->driver_data.scaling_default        = data->scaling_default;
-  printer->driver_data.sides_default          = data->sides_default;
-  printer->driver_data.x_default              = data->x_default;
-  printer->driver_data.y_default              = data->y_default;
-  printer->driver_data.media_default          = data->media_default;
-  printer->driver_data.speed_default          = data->speed_default;
-  printer->driver_data.darkness_default       = data->darkness_default;
-  printer->driver_data.bin_default            = data->bin_default;
-  printer->driver_data.mode_configured        = data->mode_configured;
-  printer->driver_data.tear_offset_configured = data->tear_offset_configured;
-  printer->driver_data.darkness_configured    = data->darkness_configured;
-  printer->driver_data.identify_default       = data->identify_default;
+  printer->psdriver.driver_data.color_default          = data->color_default;
+  printer->psdriver.driver_data.content_default        = data->content_default;
+  printer->psdriver.driver_data.quality_default        = data->quality_default;
+  printer->psdriver.driver_data.scaling_default        = data->scaling_default;
+  printer->psdriver.driver_data.sides_default          = data->sides_default;
+  printer->psdriver.driver_data.x_default              = data->x_default;
+  printer->psdriver.driver_data.y_default              = data->y_default;
+  printer->psdriver.driver_data.media_default          = data->media_default;
+  printer->psdriver.driver_data.speed_default          = data->speed_default;
+  printer->psdriver.driver_data.darkness_default       = data->darkness_default;
+  printer->psdriver.driver_data.bin_default            = data->bin_default;
+  printer->psdriver.driver_data.mode_configured        = data->mode_configured;
+  printer->psdriver.driver_data.tear_offset_configured = data->tear_offset_configured;
+  printer->psdriver.driver_data.darkness_configured    = data->darkness_configured;
+  printer->psdriver.driver_data.identify_default       = data->identify_default;
 
   // Copy any vendor-specific xxx-default values...
   for (i = 0; i < data->num_vendor; i ++)
@@ -281,11 +281,11 @@ papplPrinterSetReadyMedia(
 
   pthread_rwlock_wrlock(&printer->rwlock);
 
-  if (num_ready > printer->driver_data.num_source)
-    num_ready = printer->driver_data.num_source;
+  if (num_ready > printer->psdriver.driver_data.num_source)
+    num_ready = printer->psdriver.driver_data.num_source;
 
-  memset(printer->driver_data.media_ready, 0, sizeof(printer->driver_data.media_ready));
-  memcpy(printer->driver_data.media_ready, ready, (size_t)num_ready * sizeof(pappl_media_col_t));
+  memset(printer->psdriver.driver_data.media_ready, 0, sizeof(printer->psdriver.driver_data.media_ready));
+  memcpy(printer->psdriver.driver_data.media_ready, ready, (size_t)num_ready * sizeof(pappl_media_col_t));
   printer->state_time = time(NULL);
 
   pthread_rwlock_unlock(&printer->rwlock);
@@ -303,7 +303,7 @@ papplPrinterSetReadyMedia(
 static ipp_t *				// O - Driver attributes
 make_attrs(
     pappl_system_t         *system,	// I - System
-    pappl_pr_driver_data_t *data)	// I - Driver data
+        pappl_pr_driver_data_t *data)	// I - Driver data
 {
   ipp_t			*attrs;		// Driver attributes
   unsigned		bit;		// Current bit value
@@ -421,8 +421,8 @@ make_attrs(
 
         if (!strcmp(filter->src, "application/pdf"))
           preferred = "application/pdf";
-      }
     }
+  }
   }
 
   ippAddString(attrs, IPP_TAG_PRINTER, IPP_CONST_TAG(IPP_TAG_MIMETYPE), "document-format-preferred", NULL, preferred);

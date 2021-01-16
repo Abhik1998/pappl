@@ -12,8 +12,6 @@
 //
 
 #include "pappl-private.h"
-
-
 //
 // Local globals...
 //
@@ -228,7 +226,12 @@ static const char * const pappl_supply_types[] =
   "wasteWax",
   "water"
 };
-
+static const char * const pappl_scan_source[] =
+{
+  "adf",
+  "film-reader",
+  "platen"
+};
 
 //
 // '_papplColorModeString()' - Return the keyword value associated with the IPP "print-color-mode" bit value.
@@ -263,7 +266,12 @@ _papplContentString(
 {
   return (_PAPPL_LOOKUP_STRING(value, pappl_contents));
 }
-
+const char *				// O - IPP "input-source" keyword value
+_papplSourceString(
+    pappl_scan_input_source_t value)			// I - IPP "input-source" bit value
+{
+  return (_PAPPL_LOOKUP_STRING(value, pappl_scan_source));
+}
 
 //
 // '_papplContentValue()' - Return the bit value associated with an IPP "print-content-optimize" keyword value.

@@ -223,7 +223,7 @@ papplPrinterCreate(
   // Prepare URI values for the printer attributes...
   if (system->options & PAPPL_SOPTIONS_MULTI_QUEUE)
   {
-    if (type == PAPPL_SERVICE_TYPE_SCAN)
+    if (PAPPL_SERVICE_TYPE_SCAN == 1)
       snprintf(resource, sizeof(resource), "/ipp/scan/%s", printer_name);
     else
       snprintf(resource, sizeof(resource), "/ipp/print/%s", printer_name);
@@ -271,7 +271,7 @@ papplPrinterCreate(
   printer->dns_sd_name        = strdup(printer_name);
   printer->resource           = strdup(resource);
   printer->resourcelen        = strlen(resource);
-  if (type == PAPPL_SERVICE_TYPE_SCAN)
+  if (PAPPL_SERVICE_TYPE_SCAN == 1)
     printer->uriname          = printer->resource + 9; // Skip "/ipp/scan" in resource
   else
     printer->uriname          = printer->resource + 10; // Skip "/ipp/print" in resource
@@ -502,7 +502,7 @@ papplPrinterCreate(
 
   // print-scaling-supported
   ippAddStrings(printer->attrs, IPP_TAG_PRINTER, IPP_CONST_TAG(IPP_TAG_KEYWORD), "print-scaling-supported", (int)(sizeof(print_scaling) / sizeof(print_scaling[0])), NULL, print_scaling);
-  }
+  
   // generated-natural-language-supported
   ippAddString(printer->attrs, IPP_TAG_PRINTER, IPP_CONST_TAG(IPP_TAG_LANGUAGE), "generated-natural-language-supported", NULL, "en");
 

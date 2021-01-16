@@ -253,6 +253,8 @@ enum pappl_uoptions_e			// USB gadget options
 };
 
 typedef unsigned pappl_uoptions_t;	// USB gadget options bitfield
+typedef unsigned pappl_scan_input_source_t;	// Bitfield for IPP "input-film-scan-mode" values for scan
+
 
 //
 // Callback functions...

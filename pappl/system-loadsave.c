@@ -174,49 +174,49 @@ papplSystemLoadState(
 	else if (!strcasecmp(line, "ImpressionsCompleted"))
 	  printer->impcompleted = atoi(value);
 	else if (!strcasecmp(line, "identify-actions-default"))
-	  printer->driver_data.identify_default = _papplIdentifyActionsValue(value);
+	  printer->psdriver.driver_data.identify_default = _papplIdentifyActionsValue(value);
 	else if (!strcasecmp(line, "label-mode-configured"))
-	  printer->driver_data.mode_configured = _papplLabelModeValue(value);
+	  printer->psdriver.driver_data.mode_configured = _papplLabelModeValue(value);
 	else if (!strcasecmp(line, "label-tear-offset-configured"))
-	  printer->driver_data.tear_offset_configured = atoi(value);
+	  printer->psdriver.driver_data.tear_offset_configured = atoi(value);
 	else if (!strcasecmp(line, "media-col-default"))
-	  parse_media_col(value, &printer->driver_data.media_default);
+	  parse_media_col(value, &printer->psdriver.driver_data.media_default);
 	else if (!strncasecmp(line, "media-col-ready", 15))
 	{
 	  if ((i = atoi(line + 15)) >= 0 && i < PAPPL_MAX_SOURCE)
-	    parse_media_col(value, printer->driver_data.media_ready + i);
+	    parse_media_col(value, printer->psdriver.driver_data.media_ready + i);
 	}
 	else if (!strcasecmp(line, "orientation-requested-default"))
-	  printer->driver_data.orient_default = (ipp_orient_t)ippEnumValue("orientation-requested", value);
+	  printer->psdriver.driver_data.orient_default = (ipp_orient_t)ippEnumValue("orientation-requested", value);
 	else if (!strcasecmp(line, "output-bin-default"))
 	{
-	  for (i = 0; i < printer->driver_data.num_bin; i ++)
+	  for (i = 0; i < printer->psdriver.driver_data.num_bin; i ++)
 	  {
-	    if (!strcmp(value, printer->driver_data.bin[i]))
+	    if (!strcmp(value, printer->psdriver.driver_data.bin[i]))
 	    {
-	      printer->driver_data.bin_default = i;
+	      printer->psdriver.driver_data.bin_default = i;
 	      break;
 	    }
 	  }
 	}
 	else if (!strcasecmp(line, "print-color-mode-default"))
-	  printer->driver_data.color_default = _papplColorModeValue(value);
+	  printer->psdriver.driver_data.color_default = _papplColorModeValue(value);
 	else if (!strcasecmp(line, "print-content-optimize-default"))
-	  printer->driver_data.content_default = _papplContentValue(value);
+	  printer->psdriver.driver_data.content_default = _papplContentValue(value);
 	else if (!strcasecmp(line, "print-darkness-default"))
-	  printer->driver_data.darkness_default = atoi(value);
+	  printer->psdriver.driver_data.darkness_default = atoi(value);
 	else if (!strcasecmp(line, "print-quality-default"))
-	  printer->driver_data.quality_default = (ipp_quality_t)ippEnumValue("print-quality", value);
+	  printer->psdriver.driver_data.quality_default = (ipp_quality_t)ippEnumValue("print-quality", value);
 	else if (!strcasecmp(line, "print-scaling-default"))
-	  printer->driver_data.scaling_default = _papplScalingValue(value);
+	  printer->psdriver.driver_data.scaling_default = _papplScalingValue(value);
 	else if (!strcasecmp(line, "print-speed-default"))
-	  printer->driver_data.speed_default = atoi(value);
+	  printer->psdriver.driver_data.speed_default = atoi(value);
 	else if (!strcasecmp(line, "printer-darkness-configured"))
-	  printer->driver_data.darkness_configured = atoi(value);
+	  printer->psdriver.driver_data.darkness_configured = atoi(value);
 	else if (!strcasecmp(line, "printer-resolution-default") && value)
-	  sscanf(value, "%dx%ddpi", &printer->driver_data.x_default, &printer->driver_data.y_default);
+	  sscanf(value, "%dx%ddpi", &printer->psdriver.driver_data.x_default, &printer->psdriver.driver_data.y_default);
 	else if (!strcasecmp(line, "sides-default"))
-	  printer->driver_data.sides_default = _papplSidesValue(value);
+	  printer->psdriver.driver_data.sides_default = _papplSidesValue(value);
         else if ((ptr = strstr(line, "-default")) != NULL)
         {
           char	defname[128],		// xxx-default name
@@ -340,8 +340,8 @@ papplSystemLoadState(
 
       // Loaded all printer attributes, call the status callback (if any) to
       // update the current printer state...
-      if (printer && printer->driver_data.status_cb)
-        (printer->driver_data.status_cb)(printer);
+      if (printer && printer->psdriver.driver_data.status_cb)
+        (printer->psdriver.driver_data.status_cb)(printer);
     }
     else
     {
@@ -445,52 +445,52 @@ papplSystemSaveState(
     cupsFilePrintf(fp, "NextJobId %d\n", printer->next_job_id);
     cupsFilePrintf(fp, "ImpressionsCompleted %d\n", printer->impcompleted);
 
-    if (printer->driver_data.identify_default)
-      cupsFilePutConf(fp, "identify-actions-default", _papplIdentifyActionsString(printer->driver_data.identify_default));
+    if (printer->psdriver.driver_data.identify_default)
+      cupsFilePutConf(fp, "identify-actions-default", _papplIdentifyActionsString(printer->psdriver.driver_data.identify_default));
 
-    if (printer->driver_data.mode_configured)
-      cupsFilePutConf(fp, "label-mode-configured", _papplLabelModeString(printer->driver_data.mode_configured));
-    if (printer->driver_data.tear_offset_configured)
-      cupsFilePrintf(fp, "label-tear-offset-configured %d\n", printer->driver_data.tear_offset_configured);
+    if (printer->psdriver.driver_data.mode_configured)
+      cupsFilePutConf(fp, "label-mode-configured", _papplLabelModeString(printer->psdriver.driver_data.mode_configured));
+    if (printer->psdriver.driver_data.tear_offset_configured)
+      cupsFilePrintf(fp, "label-tear-offset-configured %d\n", printer->psdriver.driver_data.tear_offset_configured);
 
-    write_media_col(fp, "media-col-default", &printer->driver_data.media_default);
+    write_media_col(fp, "media-col-default", &printer->psdriver.driver_data.media_default);
 
-    for (i = 0; i < printer->driver_data.num_source; i ++)
+    for (i = 0; i < printer->psdriver.driver_data.num_source; i ++)
     {
-      if (printer->driver_data.media_ready[i].size_name[0])
+      if (printer->psdriver.driver_data.media_ready[i].size_name[0])
       {
         char	name[128];		// Attribute name
 
         snprintf(name, sizeof(name), "media-col-ready%d", i);
-        write_media_col(fp, name, printer->driver_data.media_ready + i);
+        write_media_col(fp, name, printer->psdriver.driver_data.media_ready + i);
       }
     }
-    if (printer->driver_data.orient_default)
-      cupsFilePutConf(fp, "orientation-requested-default", ippEnumString("orientation-requested", (int)printer->driver_data.orient_default));
-    if (printer->driver_data.bin_default && printer->driver_data.num_bin > 0)
-      cupsFilePutConf(fp, "output-bin-default", printer->driver_data.bin[printer->driver_data.bin_default]);
-    if (printer->driver_data.color_default)
-      cupsFilePutConf(fp, "print-color-mode-default", _papplColorModeString(printer->driver_data.color_default));
-    if (printer->driver_data.content_default)
-      cupsFilePutConf(fp, "print-content-optimize-default", _papplContentString(printer->driver_data.content_default));
-    if (printer->driver_data.darkness_default)
-      cupsFilePrintf(fp, "print-darkness-default %d\n", printer->driver_data.darkness_default);
-    if (printer->driver_data.quality_default)
-      cupsFilePutConf(fp, "print-quality-default", ippEnumString("print-quality", (int)printer->driver_data.quality_default));
-    if (printer->driver_data.scaling_default)
-      cupsFilePutConf(fp, "print-scaling-default", _papplScalingString(printer->driver_data.scaling_default));
-    if (printer->driver_data.darkness_default)
-      cupsFilePrintf(fp, "printer-darkness-configured %d\n", printer->driver_data.darkness_configured);
-    if (printer->driver_data.sides_default)
-      cupsFilePutConf(fp, "sides-default", _papplSidesString(printer->driver_data.sides_default));
-    if (printer->driver_data.x_default)
-      cupsFilePrintf(fp, "printer-resolution-default %dx%ddpi\n", printer->driver_data.x_default, printer->driver_data.y_default);
-    for (i = 0; i < printer->driver_data.num_vendor; i ++)
+    if (printer->psdriver.driver_data.orient_default)
+      cupsFilePutConf(fp, "orientation-requested-default", ippEnumString("orientation-requested", (int)printer->psdriver.driver_data.orient_default));
+    if (printer->psdriver.driver_data.bin_default && printer->psdriver.driver_data.num_bin > 0)
+      cupsFilePutConf(fp, "output-bin-default", printer->psdriver.driver_data.bin[printer->psdriver.driver_data.bin_default]);
+    if (printer->psdriver.driver_data.color_default)
+      cupsFilePutConf(fp, "print-color-mode-default", _papplColorModeString(printer->psdriver.driver_data.color_default));
+    if (printer->psdriver.driver_data.content_default)
+      cupsFilePutConf(fp, "print-content-optimize-default", _papplContentString(printer->psdriver.driver_data.content_default));
+    if (printer->psdriver.driver_data.darkness_default)
+      cupsFilePrintf(fp, "print-darkness-default %d\n", printer->psdriver.driver_data.darkness_default);
+    if (printer->psdriver.driver_data.quality_default)
+      cupsFilePutConf(fp, "print-quality-default", ippEnumString("print-quality", (int)printer->psdriver.driver_data.quality_default));
+    if (printer->psdriver.driver_data.scaling_default)
+      cupsFilePutConf(fp, "print-scaling-default", _papplScalingString(printer->psdriver.driver_data.scaling_default));
+    if (printer->psdriver.driver_data.darkness_default)
+      cupsFilePrintf(fp, "printer-darkness-configured %d\n", printer->psdriver.driver_data.darkness_configured);
+    if (printer->psdriver.driver_data.sides_default)
+      cupsFilePutConf(fp, "sides-default", _papplSidesString(printer->psdriver.driver_data.sides_default));
+    if (printer->psdriver.driver_data.x_default)
+      cupsFilePrintf(fp, "printer-resolution-default %dx%ddpi\n", printer->psdriver.driver_data.x_default, printer->psdriver.driver_data.y_default);
+    for (i = 0; i < printer->psdriver.driver_data.num_vendor; i ++)
     {
       char	defname[128],		// xxx-default name
 	      	defvalue[1024];		// xxx-default value
 
-      snprintf(defname, sizeof(defname), "%s-default", printer->driver_data.vendor[i]);
+      snprintf(defname, sizeof(defname), "%s-default", printer->psdriver.driver_data.vendor[i]);
       ippAttributeString(ippFindAttribute(printer->driver_attrs, defname, IPP_TAG_ZERO), defvalue, sizeof(defvalue));
 
       cupsFilePutConf(fp, defname, defvalue);

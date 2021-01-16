@@ -1,7 +1,11 @@
-#include "printer-private.h"
-#include "system-private.h"
+#include "pappl-private.h"
+#include "printer-support.c"
 
 
+#  define PAPPL_SCAN_INPUT_SOURCE_ADF 0x01
+#  define PAPPL_SCAN_INPUT_SOURCE_PLATEN 0x04
+#  define PAPPL_SCAN_COLOR_MODE_AUTO 0x01
+#  define PAPPL_SCAN_COLOR_MODE_CMYK_8 0x800
 //
 // Local functions...
 //
@@ -36,26 +40,26 @@ papplPrinterGetScanDriverData(
 // 'papplPrinterGetDriverName()' - Get the current driver name.
 //
 
-char *					// O - Driver name or `NULL` for none
-papplPrinterGetDriverName(
-    pappl_printer_t *printer,		// I - Printer
-    char            *buffer,		// I - String buffer
-    size_t          bufsize)		// I - Size of string buffer
-{
-  if (!printer || !printer->driver_name || !buffer || bufsize == 0)
-  {
-    if (buffer)
-      *buffer = '\0';
+// char *					// O - Driver name or `NULL` for none
+// papplPrinterGetDriverName(
+//     pappl_printer_t *printer,		// I - Printer
+//     char            *buffer,		// I - String buffer
+//     size_t          bufsize)		// I - Size of string buffer
+// {
+//   if (!printer || !printer->driver_name || !buffer || bufsize == 0)
+//   {
+//     if (buffer)
+//       *buffer = '\0';
 
-    return (NULL);
-  }
+//     return (NULL);
+//   }
 
-  pthread_rwlock_rdlock(&printer->rwlock);
-  strlcpy(buffer, printer->driver_name, bufsize);
-  pthread_rwlock_unlock(&printer->rwlock);
+//   pthread_rwlock_rdlock(&printer->rwlock);
+//   strlcpy(buffer, printer->driver_name, bufsize);
+//   pthread_rwlock_unlock(&printer->rwlock);
 
-  return (buffer);
-}
+//   return (buffer);
+// }
 
 
 //
@@ -255,13 +259,13 @@ make_attrs_scan(pappl_system_t       *system,// I - System
   memcpy(svalues, output_attributes_supported, sizeof(output_attributes_supported));
   num_values = (int)(sizeof(output_attributes_supported) / sizeof(output_attributes_supported[0]));
   ippAddStrings(attrs, IPP_TAG_PRINTER, IPP_CONST_TAG(IPP_TAG_KEYWORD), "output-attributes-supported", num_values, NULL, svalues);
-
+ 
 
   // input-color-mode-supported
-  for (num_values = 0, bit = PAPPL_SCAN_COLOR_MODE_AUTO; bit <= PAPPL_SCAN_COLOR_MODE_CMYK; bit *= 2)
+  for (num_values = 0, bit = PAPPL_SCAN_COLOR_MODE_AUTO; bit <= PAPPL_SCAN_COLOR_MODE_CMYK_8; bit *= 2)
   {
     if (bit & data->color_supported)
-      svalues[num_values ++] = _papplScanColorModeString(bit);
+      svalues[num_values ++] = _papplColorModeString(bit);
   }
   if (num_values > 0)
     ippAddStrings(attrs, IPP_TAG_PRINTER, IPP_CONST_TAG(IPP_TAG_KEYWORD), "input-color-mode-supported", num_values, NULL, svalues);

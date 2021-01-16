@@ -121,7 +121,7 @@ _papplPrinterRunRaw(
 
 	  // Create a new job with default attributes...
 	  papplLogPrinter(printer, PAPPL_LOGLEVEL_INFO, "Accepted socket print connection from '%s'.", httpAddrString(&sockaddr, buffer, sizeof(buffer)));
-          if ((job = _papplJobCreate(printer, 0, "guest", printer->driver_data.format ? printer->driver_data.format : "application/octet-stream", "Untitled", NULL)) == NULL)
+          if ((job = _papplJobCreate(printer, 0, "guest", printer->psdriver.driver_data.format ? printer->psdriver.driver_data.format : "application/octet-stream", "Untitled", NULL)) == NULL)
           {
             close(sock);
             continue;

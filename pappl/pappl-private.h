@@ -10,7 +10,7 @@
 
 #ifndef _PAPPL_PAPPL_PRIVATE_H_
 #  define _PAPPL_PAPPL_PRIVATE_H_
-
+#  define PAPPL_SERVICE_TYPE_SCAN  1
 //
 // Include necessary headers...
 //
@@ -23,5 +23,6 @@
 #  include "job-private.h"
 #  include "mainloop-private.h"
 #  include "log-private.h"
+#  include "scanner.h"
 
 #endif // !_PAPPL_PAPPL_PRIVATE_H_

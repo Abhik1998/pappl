@@ -44,7 +44,7 @@ _papplSystemAddPrinterIcons(
     pappl_printer_t *printer)		// I - Printer
 {
   char		path[256];		// Resource path
-  pappl_icon_t	*icons = printer->driver_data.icons;
+  pappl_icon_t	*icons = printer->psdriver.driver_data.icons;
 					// Printer icons
 
 

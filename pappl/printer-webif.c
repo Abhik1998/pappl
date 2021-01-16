@@ -795,9 +795,9 @@ _papplPrinterWebHome(
     }
     else if (!strcmp(action, "identify-printer"))
     {
-      if (printer->driver_data.identify_supported && printer->driver_data.identify_cb)
+      if (printer->psdriver.driver_data.identify_supported && printer->psdriver.driver_data.identify_cb)
       {
-        (printer->driver_data.identify_cb)(printer, printer->driver_data.identify_supported, "Hello.");
+        (printer->psdriver.driver_data.identify_cb)(printer, printer->psdriver.driver_data.identify_supported, "Hello.");
 
         status = "Printer identified.";
       }
@@ -814,8 +814,8 @@ _papplPrinterWebHome(
 			*username;	// Username
 
       // Get the testfile to print, if any...
-      if (printer->driver_data.testpage_cb)
-        filename = (printer->driver_data.testpage_cb)(printer, buffer, sizeof(buffer));
+      if (printer->psdriver.driver_data.testpage_cb)
+        filename = (printer->psdriver.driver_data.testpage_cb)(printer, buffer, sizeof(buffer));
       else
 	filename = NULL;
 
@@ -978,23 +978,23 @@ _papplPrinterWebIteratorCallback(
       papplClientHTMLPrintf(client, ", %s", reasons[i]);
   }
 
-  if (strcmp(printer->name, printer->driver_data.make_and_model))
-    papplClientHTMLPrintf(client, ".<br>%s</p>\n", printer->driver_data.make_and_model);
+  if (strcmp(printer->name, printer->psdriver.driver_data.make_and_model))
+    papplClientHTMLPrintf(client, ".<br>%s</p>\n", printer->psdriver.driver_data.make_and_model);
   else
     papplClientHTMLPuts(client, ".</p>\n");
 
   papplClientHTMLPuts(client, "          <div class=\"btn\">");
   _papplClientHTMLPutLinks(client, printer->links, PAPPL_LOPTIONS_STATUS);
-  if (printer->driver_data.has_supplies)
+  if (printer->psdriver.driver_data.has_supplies)
     papplClientHTMLPrintf(client, " <a class=\"btn\" href=\"%s/supplies\">Supplies</a>", printer->uriname);
 
-  if (printer->driver_data.identify_supported)
+  if (printer->psdriver.driver_data.identify_supported)
   {
     papplClientHTMLStartForm(client, uri, false);
     papplClientHTMLPrintf(client, "<input type=\"hidden\" name=\"action\" value=\"identify-printer\"><input type=\"submit\" value=\"Identify Printer\"></form>");
   }
 
-  if (printer->driver_data.testpage_cb)
+  if (printer->psdriver.driver_data.testpage_cb)
   {
     papplClientHTMLStartForm(client, uri, false);
     papplClientHTMLPrintf(client, "<input type=\"hidden\" name=\"action\" value=\"print-test-page\"><input type=\"submit\" value=\"Print Test Page\"></form>");
