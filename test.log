@@ -1,0 +1,222 @@
+I [2021-01-17T05:43:37.129Z] Starting log, system up 0 second(s), 0 printer(s), listening for connections on 'abhik-VivoBook-ASUSLaptop-X509JA-X509JA.local:0'.
+D [2021-01-17T05:43:37.130Z] Adding 'image/jpeg' to 'image/pwg-raster' filter.
+D [2021-01-17T05:43:37.130Z] Adding 'image/png' to 'image/pwg-raster' filter.
+I [2021-01-17T05:43:37.130Z] Listening for connections on '*:8000'.
+I [2021-01-17T05:43:37.130Z] Listening for connections on '*:8000'.
+I [2021-01-17T05:43:37.130Z] Loading system state from 'testpappl.state'.
+D [2021-01-17T05:43:37.130Z] papplSystemFindPrinter(system, resource="/ipp/scan/Label_Printer", printer_id=0, device_uri="(null)")
+D [2021-01-17T05:43:37.130Z] papplSystemFindPrinter: Returning (nil)(none)
+I [2021-01-17T05:43:37.130Z] Printer 'Label Printer' at resource path '/ipp/scan/Label_Printer'.
+D [2021-01-17T05:43:37.131Z] [Printer Label Printer] identify-actions-default=0x0004
+D [2021-01-17T05:43:37.131Z] [Printer Label Printer] media-default=na_index-4x6_4x6in
+D [2021-01-17T05:43:37.131Z] [Printer Label Printer] orientation-requested-default=7(none)
+D [2021-01-17T05:43:37.131Z] [Printer Label Printer] print-color-mode-default=monochrome(0x0010)
+D [2021-01-17T05:43:37.131Z] [Printer Label Printer] print-content-default=auto(0x0001)
+D [2021-01-17T05:43:37.131Z] [Printer Label Printer] print-quality-default=4(normal)
+D [2021-01-17T05:43:37.131Z] [Printer Label Printer] print-scaling-default=auto(0x0001)
+D [2021-01-17T05:43:37.131Z] [Printer Label Printer] printer-resolution-default=203x203dpi
+D [2021-01-17T05:43:37.131Z] [Printer Label Printer] sides-default=one-sided(0x0001)
+D [2021-01-17T05:43:37.131Z] [Printer Label Printer] Driver supports raw printing of 'image/pwg-raster' files.
+D [2021-01-17T05:43:37.131Z] [Printer Label Printer] Driver reports ppm 20.
+D [2021-01-17T05:43:37.131Z] [Printer Label Printer] Driver reports ppm_color 0.
+D [2021-01-17T05:43:37.131Z] [Printer Label Printer] Driver provides small-48x48 icon in memory (3619 bytes).
+D [2021-01-17T05:43:37.131Z] [Printer Label Printer] Driver provides medium-128x128 icon in memory (7548 bytes).
+D [2021-01-17T05:43:37.131Z] [Printer Label Printer] Driver provides large-512x512 icon in memory (37123 bytes).
+I [2021-01-17T05:43:37.131Z] [Printer Label Printer] Listening for socket print jobs on '*:9101'.
+D [2021-01-17T05:43:37.131Z] Adding resource for '/Label_Printer/icon-sm.png'.
+D [2021-01-17T05:43:37.131Z] Adding resource for '/Label_Printer/icon-md.png'.
+D [2021-01-17T05:43:37.131Z] Adding resource for '/Label_Printer/icon-lg.png'.
+D [2021-01-17T05:43:37.131Z] Adding resource for '/Label_Printer/'.
+D [2021-01-17T05:43:37.131Z] Adding resource for '/Label_Printer/cancel'.
+D [2021-01-17T05:43:37.131Z] Adding resource for '/Label_Printer/cancelall'.
+D [2021-01-17T05:43:37.131Z] Adding resource for '/Label_Printer/delete'.
+D [2021-01-17T05:43:37.131Z] Adding resource for '/Label_Printer/config'.
+D [2021-01-17T05:43:37.131Z] Adding resource for '/Label_Printer/jobs'.
+D [2021-01-17T05:43:37.131Z] Adding resource for '/Label_Printer/media'.
+D [2021-01-17T05:43:37.131Z] Adding resource for '/Label_Printer/printing'.
+D [2021-01-17T05:43:37.131Z] papplSystemFindPrinter(system, resource="/ipp/scan/Office_Printer", printer_id=0, device_uri="(null)")
+D [2021-01-17T05:43:37.131Z] papplSystemFindPrinter: printer 'Label Printer' - resource="/ipp/scan/Label_Printer", printer_id=2, device_uri="file:///home/abhik/pappl?ext=pwg"
+D [2021-01-17T05:43:37.131Z] papplSystemFindPrinter: Returning (nil)(none)
+I [2021-01-17T05:43:37.131Z] Printer 'Office Printer' at resource path '/ipp/scan/Office_Printer'.
+D [2021-01-17T05:43:37.131Z] [Printer Office Printer] identify-actions-default=0x0004
+D [2021-01-17T05:43:37.132Z] [Printer Office Printer] media-default=na_letter_8.5x11in
+D [2021-01-17T05:43:37.132Z] [Printer Office Printer] orientation-requested-default=7(none)
+D [2021-01-17T05:43:37.132Z] [Printer Office Printer] print-color-mode-default=auto(0x0001)
+D [2021-01-17T05:43:37.132Z] [Printer Office Printer] print-content-default=auto(0x0001)
+D [2021-01-17T05:43:37.132Z] [Printer Office Printer] print-quality-default=4(normal)
+D [2021-01-17T05:43:37.132Z] [Printer Office Printer] print-scaling-default=auto(0x0001)
+D [2021-01-17T05:43:37.132Z] [Printer Office Printer] printer-resolution-default=600x600dpi
+D [2021-01-17T05:43:37.132Z] [Printer Office Printer] sides-default=two-sided-long-edge(0x0002)
+D [2021-01-17T05:43:37.132Z] [Printer Office Printer] Driver supports raw printing of 'image/pwg-raster' files.
+D [2021-01-17T05:43:37.132Z] [Printer Office Printer] Driver reports ppm 5.
+D [2021-01-17T05:43:37.132Z] [Printer Office Printer] Driver reports ppm_color 2.
+W [2021-01-17T05:43:37.132Z] [Printer Office Printer] Driver does not provide printer icons, using defaults.
+I [2021-01-17T05:43:37.132Z] [Printer Office Printer] Listening for socket print jobs on '*:9100'.
+D [2021-01-17T05:43:37.132Z] Adding resource for '/Office_Printer/icon-sm.png'.
+D [2021-01-17T05:43:37.132Z] Adding resource for '/Office_Printer/icon-md.png'.
+D [2021-01-17T05:43:37.132Z] Adding resource for '/Office_Printer/icon-lg.png'.
+D [2021-01-17T05:43:37.132Z] Adding resource for '/Office_Printer/'.
+D [2021-01-17T05:43:37.132Z] Adding resource for '/Office_Printer/cancel'.
+D [2021-01-17T05:43:37.132Z] Adding resource for '/Office_Printer/cancelall'.
+D [2021-01-17T05:43:37.132Z] Adding resource for '/Office_Printer/delete'.
+D [2021-01-17T05:43:37.132Z] Adding resource for '/Office_Printer/config'.
+D [2021-01-17T05:43:37.132Z] Adding resource for '/Office_Printer/jobs'.
+D [2021-01-17T05:43:37.132Z] Adding resource for '/Office_Printer/media'.
+D [2021-01-17T05:43:37.132Z] Adding resource for '/Office_Printer/printing'.
+D [2021-01-17T05:43:37.132Z] Adding resource for '/Office_Printer/supplies'.
+D [2021-01-17T05:43:37.132Z] Adding resource for '/favicon.png'.
+D [2021-01-17T05:43:37.132Z] Adding resource for '/navicon.png'.
+D [2021-01-17T05:43:37.132Z] Adding resource for '/style.css'.
+D [2021-01-17T05:43:37.132Z] Adding resource for '/logfile.txt'.
+D [2021-01-17T05:43:37.132Z] Adding resource for '/logs'.
+D [2021-01-17T05:43:37.132Z] Adding resource for '/'.
+D [2021-01-17T05:43:37.132Z] Adding resource for '/addprinter'.
+D [2021-01-17T05:43:37.132Z] Adding resource for '/addscanner'.
+D [2021-01-17T05:43:37.132Z] Adding resource for '/config'.
+D [2021-01-17T05:43:37.132Z] Adding resource for '/network'.
+D [2021-01-17T05:43:37.132Z] Adding resource for '/security'.
+D [2021-01-17T05:43:37.132Z] Adding resource for '/tls-install-crt'.
+D [2021-01-17T05:43:37.132Z] Adding resource for '/tls-new-crt'.
+D [2021-01-17T05:43:37.132Z] Adding resource for '/tls-new-csr'.
+I [2021-01-17T05:43:37.132Z] Starting system.
+D [2021-01-17T05:43:37.132Z] Registering DNS-SD name 'Test System' on 'abhik-VivoBook-ASUSLaptop-X509JA-X509JA.local'
+D [2021-01-17T05:43:37.134Z] Registering LOC record for 'Test System._ipps-system._tcp.local.' with data 00 11 11 11 89F8B638 6E9EC058 00989680
+D [2021-01-17T05:43:37.136Z] [Printer Label Printer] Registering DNS-SD name 'Label Printer' on 'abhik-VivoBook-ASUSLaptop-X509JA-X509JA.local'
+D [2021-01-17T05:43:37.141Z] [Printer Office Printer] Registering DNS-SD name 'Office Printer' on 'abhik-VivoBook-ASUSLaptop-X509JA-X509JA.local'
+D [2021-01-17T05:43:37.141Z] [Printer Label Printer] Running socket print thread with 2 listeners.
+D [2021-01-17T05:43:37.144Z] [Printer Office Printer] Running socket print thread with 2 listeners.
+I [2021-01-17T05:43:37.977Z] [Client 1] Accepted connection from '192.168.29.50'.
+D [2021-01-17T05:43:37.977Z] Registering DNS-SD name 'Test System' on 'abhik-VivoBook-ASUSLaptop-X509JA-X509JA.local'
+I [2021-01-17T05:43:37.977Z] [Client 1] POST http://abhik-VivoBook-ASUSLaptop-X509JA-X509JA.local:8000/ipp/scan/Label_Printer HTTP/1.1
+I [2021-01-17T05:43:37.978Z] [Client 1] Continue
+D [2021-01-17T05:43:37.978Z] [Client 1] Get-Printer-Attributes request: IPP/2.0 request-id=131
+D [2021-01-17T05:43:37.978Z] [Client 1] Get-Printer-Attributes request: operation-attributes-tag
+D [2021-01-17T05:43:37.978Z] [Client 1] Get-Printer-Attributes request:   attributes-charset charset utf-8
+D [2021-01-17T05:43:37.978Z] [Client 1] Get-Printer-Attributes request:   attributes-natural-language naturalLanguage en-in
+D [2021-01-17T05:43:37.978Z] [Client 1] Get-Printer-Attributes request:   printer-uri uri ipp://abhik-VivoBook-ASUSLaptop-X509JA-X509JA.local:8000/ipp/scan/Label_Printer
+D [2021-01-17T05:43:37.978Z] [Client 1] Get-Printer-Attributes request:   requested-attributes 1setOf keyword job-template,printer-defaults,printer-description,media-col-database
+D [2021-01-17T05:43:37.978Z] papplSystemFindPrinter(system, resource="/ipp/scan/Label_Printer", printer_id=0, device_uri="(null)")
+D [2021-01-17T05:43:37.978Z] papplSystemFindPrinter: printer 'Label Printer' - resource="/ipp/scan/Label_Printer", printer_id=2, device_uri="file:///home/abhik/pappl?ext=pwg"
+D [2021-01-17T05:43:37.978Z] papplSystemFindPrinter: Returning 0x562c64dd7ba0(Label Printer)
+I [2021-01-17T05:43:37.978Z] [Client 1] Get-Printer-Attributes successful-ok
+I [2021-01-17T05:43:37.978Z] [Client 1] OK application/ipp 9913
+D [2021-01-17T05:43:37.978Z] [Client 1] Get-Printer-Attributes response: IPP/2.0 request-id=131, status-code=successful-ok
+D [2021-01-17T05:43:37.978Z] [Client 1] Get-Printer-Attributes response: operation-attributes-tag
+D [2021-01-17T05:43:37.978Z] [Client 1] Get-Printer-Attributes response:   attributes-charset charset utf-8
+D [2021-01-17T05:43:37.978Z] [Client 1] Get-Printer-Attributes response:   attributes-natural-language naturalLanguage en-in
+D [2021-01-17T05:43:37.978Z] [Client 1] Get-Printer-Attributes response: printer-attributes-tag
+D [2021-01-17T05:43:37.978Z] [Client 1] Get-Printer-Attributes response:   charset-configured charset utf-8
+D [2021-01-17T05:43:37.978Z] [Client 1] Get-Printer-Attributes response:   charset-supported 1setOf charset us-ascii,utf-8
+D [2021-01-17T05:43:37.978Z] [Client 1] Get-Printer-Attributes response:   compression-supported 1setOf keyword deflate,gzip,none
+D [2021-01-17T05:43:37.978Z] [Client 1] Get-Printer-Attributes response:   copies-default integer 1
+D [2021-01-17T05:43:37.978Z] [Client 1] Get-Printer-Attributes response:   document-format-default mimeMediaType application/octet-stream
+D [2021-01-17T05:43:37.978Z] [Client 1] Get-Printer-Attributes response:   generated-natural-language-supported naturalLanguage en
+D [2021-01-17T05:43:37.978Z] [Client 1] Get-Printer-Attributes response:   ipp-versions-supported 1setOf keyword 1.1,2.0
+D [2021-01-17T05:43:37.978Z] [Client 1] Get-Printer-Attributes response:   job-ids-supported boolean true
+D [2021-01-17T05:43:37.978Z] [Client 1] Get-Printer-Attributes response:   job-k-octets-supported rangeOfInteger 0-19945696
+D [2021-01-17T05:43:37.978Z] [Client 1] Get-Printer-Attributes response:   job-priority-default integer 50
+D [2021-01-17T05:43:37.978Z] [Client 1] Get-Printer-Attributes response:   job-priority-supported integer 1
+D [2021-01-17T05:43:37.978Z] [Client 1] Get-Printer-Attributes response:   job-sheets-default nameWithoutLanguage none
+D [2021-01-17T05:43:37.978Z] [Client 1] Get-Printer-Attributes response:   job-sheets-supported nameWithoutLanguage none
+D [2021-01-17T05:43:37.978Z] [Client 1] Get-Printer-Attributes response:   job-spooling-supported keyword stream
+D [2021-01-17T05:43:37.978Z] [Client 1] Get-Printer-Attributes response:   jpeg-k-octets-supported rangeOfInteger 0-19945696
+D [2021-01-17T05:43:37.978Z] [Client 1] Get-Printer-Attributes response:   jpeg-x-dimension-supported rangeOfInteger 0-16384
+D [2021-01-17T05:43:37.978Z] [Client 1] Get-Printer-Attributes response:   jpeg-y-dimension-supported rangeOfInteger 1-16384
+D [2021-01-17T05:43:37.978Z] [Client 1] Get-Printer-Attributes response:   multiple-document-handling-supported 1setOf keyword separate-documents-uncollated-copies,separate-documents-collated-copies
+D [2021-01-17T05:43:37.978Z] [Client 1] Get-Printer-Attributes response:   multiple-document-jobs-supported boolean false
+D [2021-01-17T05:43:37.978Z] [Client 1] Get-Printer-Attributes response:   multiple-operation-time-out integer 60
+D [2021-01-17T05:43:37.978Z] [Client 1] Get-Printer-Attributes response:   multiple-operation-time-out-action keyword abort-job
+D [2021-01-17T05:43:37.978Z] [Client 1] Get-Printer-Attributes response:   natural-language-configured naturalLanguage en
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   operations-supported 1setOf enum Print-Job,Validate-Job,Create-Job,Send-Document,Cancel-Job,Get-Job-Attributes,Get-Jobs,Get-Printer-Attributes,Pause-Printer,Resume-Printer,Set-Printer-Attributes,Cancel-My-Jobs,Close-Job,Identify-Printer
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   orientation-requested-supported 1setOf enum portrait,landscape,reverse-landscape,reverse-portrait,none
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   pdl-override-supported keyword attempted
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   print-content-optimize-supported 1setOf keyword auto,graphic,photo,text-and-graphic,text
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   print-quality-supported 1setOf enum draft,normal,high
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   print-scaling-supported 1setOf keyword auto,auto-fit,fill,fit,none
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   generated-natural-language-supported naturalLanguage en
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   ipp-versions-supported 1setOf keyword 1.1,2.0
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   job-ids-supported boolean true
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   printer-device-id textWithoutLanguage MFG:PWG;MDL:Label Printer;
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   printer-get-attributes-supported keyword document-format
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   printer-id integer 2
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   printer-info textWithoutLanguage Label Printer
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   printer-name nameWithoutLanguage Label Printer
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   printer-uuid uri urn:uuid:a516e3ed-6893-349b-757f-28fc7ae2fa75
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   uri-security-supported 1setOf keyword none,tls
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   which-jobs-supported 1setOf keyword completed,not-completed,all
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   color-supported boolean false
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   document-format-supported 1setOf mimeMediaType application/octet-stream,image/pwg-raster,image/urf,image/pwg-raster,image/jpeg,image/png
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   finishings-default enum none
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   finishings-supported enum none
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   identify-actions-supported 1setOf keyword display,sound
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   ipp-features-supported keyword ipp-everywhere
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   job-creation-attributes-supported 1setOf keyword copies,document-format,document-name,ipp-attribute-fidelity,job-name,job-priority,media,media-col,multiple-document-handling,orientation-requested,output-bin,print-color-mode,print-content-optimize,print-quality,printer-resolution,sides,print-darkness,print-speed,vendor-boolean,vendor-integer,vendor-keyword,vendor-range,vendor-text
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   landscape-orientation-requested-preferred enum 4
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   media-bottom-margin-supported integer 0
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   media-col-database 1setOf collection {media-bottom-margin=0 media-left-margin=0 media-right-margin=0 media-size={x-dimension=3175 y-dimension=8890} media-size-name=oe_address-label_1.25x3.5in media-top-margin=0},{media-bottom-margin=0 media-left-margin=0 media-right-margin=0 media-size={x-dimension=3556 y-dimension=8890} media-size-name=oe_lg-address-label_1.4x3.5in media-top-margin=0},{media-bottom-margin=0 media-left-margin=0 media-right-margin=0 media-size={x-dimension=5080 y-dimension=5873} media-size-name=oe_multipurpose-label_2x2.3125in media-top-margin=0},{media-bottom-margin=0 media-left-margin=0 media-right-margin=0 media-size={x-dimension=7620 y-dimension=12700} media-size-name=na_index-3x5_3x5in media-top-margin=0},{media-bottom-margin=0 media-left-margin=0 media-right-margin=0 media-size={x-dimension=10160 y-dimension=15240} media-size-name=na_index-4x6_4x6in media-top-margin=0},{media-size={x-dimension=635-10160 y-dimension=635-9144000} media-bottom-margin=0 media-left-margin=0 media-right-margin=0 media-top-margin=0}
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   media-col-supported 1setOf keyword media-bottom-margin,media-left-margin,media-right-margin,media-size,media-size-name,media-top-margin,media-source,media-top-offset,media-tracking,media-type
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   media-left-margin-supported integer 0
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   media-right-margin-supported integer 0
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   media-size-supported 1setOf collection {x-dimension=3175 y-dimension=8890},{x-dimension=3556 y-dimension=8890},{x-dimension=5080 y-dimension=5873},{x-dimension=7620 y-dimension=12700},{x-dimension=10160 y-dimension=15240},{x-dimension=635-10160 y-dimension=635-9144000}
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   media-source-supported 1setOf keyword main-roll,alternate-roll,auto
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   media-supported 1setOf keyword oe_address-label_1.25x3.5in,oe_lg-address-label_1.4x3.5in,oe_multipurpose-label_2x2.3125in,na_index-3x5_3x5in,na_index-4x6_4x6in,custom_max_4x3600in,custom_min_0.25x0.25inroll_max_4x3600in,roll_min_0.25x0.25in
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   media-top-margin-supported integer 0
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   media-type-supported 1setOf keyword labels,continuous,labels-continuous
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   output-bin-supported keyword face-down
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   pages-per-minute integer 20
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   print-color-mode-supported 1setOf keyword auto,monochrome
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   printer-kind 1setOf keyword label,roll
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   printer-make-and-model textWithoutLanguage PWG 4-inch Label Printer
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   printer-output-tray octetString type=unRemovableBin;maxcapacity=-2;remaining=-2;status=0;name=face-down;stackingorder=firstToLast;pagedelivery=faceDown;
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   printer-resolution-supported resolution 203dpi
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   pwg-raster-document-resolution-supported resolution 203dpi
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   pwg-raster-document-type-supported 1setOf keyword black_1,black_8,sgray_8
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   sides-supported keyword one-sided
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   urf-supported 1setOf keyword V1.4,W8,DEVW8,PQ3-4-5,FN3,IS9-10,MT5,OB10,RS203
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   printer-state enum idle
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   printer-state-message textWithoutLanguage Idle.
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   printer-state-reasons keyword none
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   copies-supported rangeOfInteger 1-999
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   identify-actions-default keyword sound
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   media-col-default collection {media-bottom-margin=0 media-left-margin=0 media-right-margin=0 media-size={x-dimension=10160 y-dimension=15240} media-size-name=na_index-4x6_4x6in media-source=main-roll media-top-margin=0 media-top-offset=0 media-tracking=mark media-type=labels}
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   media-col-ready 1setOf collection {media-bottom-margin=0 media-left-margin=0 media-right-margin=0 media-size={x-dimension=10160 y-dimension=15240} media-size-name=na_index-4x6_4x6in media-source=main-roll media-top-margin=0 media-top-offset=0 media-tracking=mark media-type=labels},{media-bottom-margin=0 media-left-margin=0 media-right-margin=0 media-size={x-dimension=3175 y-dimension=8890} media-size-name=oe_address-label_1.25x3.5in media-source=alternate-roll media-top-margin=0 media-top-offset=0 media-tracking=mark media-type=labels}
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   media-default keyword na_index-4x6_4x6in
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   media-ready 1setOf keyword na_index-4x6_4x6in,oe_address-label_1.25x3.5in
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   multiple-document-handling-default keyword separate-documents-collated-copies
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   orientation-requested-default enum none
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   output-bin-default keyword face-down
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   print-color-mode-default keyword monochrome
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   print-content-optimize-default keyword auto
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   print-quality-default enum normal
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   print-scaling-default keyword auto
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   printer-config-change-date-time dateTime 2021-01-17T05:43:37Z
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   printer-config-change-time integer 0
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   printer-current-time dateTime 2021-01-17T05:43:37Z
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   printer-firmware-name 1setOf nameWithoutLanguage Test System,PAPPL,libcups,libjpeg,libpng
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   printer-firmware-patches 1setOf textWithoutLanguage ,,,,
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   printer-firmware-string-version 1setOf textWithoutLanguage 1.0 build 42,1.0.0,2.3.3,8.0,1.6.34
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   printer-firmware-version 1setOf octetString \\001\\000\\000\\000\\000\\000*\\000,\\001\\000\\000\\000\\000\\000\\000\\000,\\002\\000\\003\\000\\003\\000\\000\\000,\\010\\000\\000\\000\\000\\000\\000\\000,\\001\\000\\006\\000\"\\000\\000\\000
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   printer-dns-sd-name nameWithoutLanguage Label Printer
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   printer-geo-location uri geo:46.4707,-80.9961
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   printer-icons 1setOf uri https://abhik-VivoBook-ASUSLaptop-X509JA-X509JA.local:8000/Label_Printer/icon-sm.png,https://abhik-VivoBook-ASUSLaptop-X509JA-X509JA.local:8000/Label_Printer/icon-md.png,https://abhik-VivoBook-ASUSLaptop-X509JA-X509JA.local:8000/Label_Printer/icon-lg.png
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   printer-input-tray 1setOf octetString type=sheetFeedAutoRemovableTray;mediafeed=15240;mediaxfeed=10160;maxcapacity=-2;level=-2;status=0;name=main-roll;,type=sheetFeedAutoRemovableTray;mediafeed=8890;mediaxfeed=3175;maxcapacity=-2;level=-2;status=0;name=alternate-roll;,type=other;mediafeed=0;mediaxfeed=0;maxcapacity=-2;level=-2;status=0;name=auto;
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   printer-is-accepting-jobs boolean false
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   printer-location textWithoutLanguage Test Lab 42
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   printer-more-info uri https://abhik-VivoBook-ASUSLaptop-X509JA-X509JA.local:8000/Label_Printer/
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   printer-organization textWithoutLanguage Lakeside Robotics
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   printer-organizational-unit textWithoutLanguage 
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   printer-resolution-default resolution 203dpi
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   printer-state-change-date-time dateTime 2021-01-17T05:43:37Z
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   printer-state-change-time integer 0
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   printer-supply-info-uri uri https://abhik-VivoBook-ASUSLaptop-X509JA-X509JA.local:8000/Label_Printer/supplies
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   printer-up-time integer 0
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   printer-uri-supported 1setOf uri ipp://abhik-VivoBook-ASUSLaptop-X509JA-X509JA.local:8000/ipp/scan/Label_Printer,ipps://abhik-VivoBook-ASUSLaptop-X509JA-X509JA.local:8000/ipp/scan/Label_Printer
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   printer-xri-supported 1setOf collection {xri-authentication=none xri-security=none xri-uri=ipp://abhik-VivoBook-ASUSLaptop-X509JA-X509JA.local:8000/ipp/scan/Label_Printer},{xri-authentication=none xri-security=tls xri-uri=ipps://abhik-VivoBook-ASUSLaptop-X509JA-X509JA.local:8000/ipp/scan/Label_Printer}
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   queued-job-count integer 0
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   sides-default keyword one-sided
+D [2021-01-17T05:43:37.979Z] [Client 1] Get-Printer-Attributes response:   uri-authentication-supported 1setOf keyword none,none
+D [2021-01-17T05:43:37.981Z] Registering LOC record for 'Test System._ipps-system._tcp.local.' with data 00 11 11 11 89F8B638 6E9EC058 00989680
+D [2021-01-17T05:43:37.982Z] [Printer Label Printer] Registering DNS-SD name 'Label Printer' on 'abhik-VivoBook-ASUSLaptop-X509JA-X509JA.local'
+D [2021-01-17T05:43:37.990Z] [Printer Office Printer] Registering DNS-SD name 'Office Printer' on 'abhik-VivoBook-ASUSLaptop-X509JA-X509JA.local'
+I [2021-01-17T05:43:37.996Z] Saving system state to 'testpappl.state'.
+I [2021-01-17T05:43:37.997Z] Shutting down system.

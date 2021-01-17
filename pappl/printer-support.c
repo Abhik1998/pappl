@@ -244,7 +244,6 @@ _papplColorModeString(
   return (_PAPPL_LOOKUP_STRING(value, pappl_color_modes));
 }
 
-
 //
 // '_papplColorModeValue()' - Return the bit value associated with the IPP "print-color-mode" keyword value.
 //

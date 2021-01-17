@@ -10,7 +10,6 @@
 //
 // Include necessary headers...
 //
-
 #include "pappl-private.h"
 // #include "scanner-driver.c"
 

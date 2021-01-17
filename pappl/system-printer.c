@@ -78,7 +78,7 @@ papplSystemFindPrinter(
 
   pthread_rwlock_rdlock(&system->rwlock);
 
-  if (resource && (!strcmp(resource, "/") || !strcmp(resource, "/ipp/print") || (!strncmp(resource, "/ipp/print/", 11) && isdigit(resource[11] & 255))))
+  if (resource && (!strcmp(resource, "/") || (!strcmp(resource, "/ipp/print") || !strcmp(resource, "/ipp/scan")) || (!strncmp(resource, "/ipp/print/", 11) && isdigit(resource[11] & 255))||(!strncmp(resource, "/ipp/scan/", 10) && isdigit(resource[10] & 255))))
   {
     printer_id = system->default_printer_id;
     resource   = NULL;
