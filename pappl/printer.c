@@ -145,13 +145,13 @@ papplPrinterCreate(
     "us-ascii",
     "utf-8"
   };
-  static const char * const destination_uri_schemes[] =
-  {					// destination-uri-schemes-supported
-    "http",
-    "https",
-    "ftp",
-    "ftps"
-  };
+  // static const char * const destination_uri_schemes[] =
+  // {					// destination-uri-schemes-supported
+  //   "http",
+  //   "https",
+  //   "ftp",
+  //   "ftps"
+  // };
   static const char * const compression[] =
   {					// compression-supported values
     "deflate",
