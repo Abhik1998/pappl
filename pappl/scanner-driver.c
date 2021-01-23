@@ -1,5 +1,5 @@
 #include "pappl-private.h"
-#include "printer-support.c"
+// #include "printer-support.c"
 
 
 #  define PAPPL_SCAN_INPUT_SOURCE_ADF 0x01

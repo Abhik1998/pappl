@@ -160,7 +160,34 @@ _papplJobCreate(
 
   return (job);
 }
+//
+// 'papplJobCreate()' - Create a new job object from a Print-Job or Create-Job request.
+//
 
+pappl_job_t *				// O - Job
+papplJobCreate(
+    pappl_client_t *client)		// I - Client
+{
+  ipp_attribute_t	*attr;		// Job attribute
+  const char		*job_name,	// Job name
+			*username;	// Owner
+
+
+  // Get the requesting-user-name, document format, and name...
+  if (client->username[0])
+    username = client->username;
+  else  if ((attr = ippFindAttribute(client->request, "requesting-user-name", IPP_TAG_NAME)) != NULL)
+    username = ippGetString(attr, 0, NULL);
+  else
+    username = "guest";
+
+  if ((attr = ippFindAttribute(client->request, "job-name", IPP_TAG_NAME)) != NULL)
+    job_name = ippGetString(attr, 0, NULL);
+  else
+    job_name = "Untitled";
+
+  return (_papplJobCreate(client->printer, 0,username, NULL, job_name, client->request));
+}
 
 //
 // '_papplJobDelete()' - Remove a job from the system and free its memory.

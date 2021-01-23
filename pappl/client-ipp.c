@@ -18,6 +18,7 @@
 //
 // '_papplClientFlushDocumentData()' - Safely flush remaining document data.
 //
+bool is_scanner=false;
 
 void
 _papplClientFlushDocumentData(
@@ -187,6 +188,8 @@ _papplClientProcessIPP(
 	  }
 	  else if ((client->printer = papplSystemFindPrinter(client->system, resource, 0, NULL)) != NULL)
 	  {
+      if (strstr(resource, "/ipp/scan"))
+              is_scanner = true;
 	    if (!strcmp(name, "job-uri") && (resptr = strrchr(resource, '/')) != NULL)
 	      job_id = atoi(resptr + 1);
 	    else
